@@ -1,31 +1,32 @@
-import { useState, useEffect, useMemo, useRef } from 'react';
-import api from './api';
-import ScheduleWeek from './components/ScheduleWeek';
-import DocumentList from './components/DocumentList';
-import AddDocumentForm from './components/AddDocumentForm';
-import SubjectList from './components/SubjectList';
-import AddSubjectForm from './components/AddSubjectForm';
-import { initialSubjects, initialDocuments } from './data';
-import type { Document, Subject } from '../types';
+// import thư viện cần thiết
+import { useState, useEffect, useMemo, useRef } from 'react'; //hook của react để quản lý state và lifecycle
+import api from './api'; //api để giao tiếp với backend
+import ScheduleWeek from './components/ScheduleWeek'; //component để hiển thị lịch
+import DocumentList from './components/DocumentList'; //component để hiển thị danh sách tài liệu
+import AddDocumentForm from './components/AddDocumentForm'; //component để thêm tài liệu
+import SubjectList from './components/SubjectList'; //component để hiển thị danh sách môn học
+import AddSubjectForm from './components/AddSubjectForm'; //component để thêm môn học
+import { initialSubjects, initialDocuments } from './data'; //dữ liệu ban đầu
+import type { Document, Subject } from '../types'; //kiểu dữ liệu
 
 function App() {
-  const [subjects, setSubjects] = useState<Subject[]>(initialSubjects);
-  const [docs, setDocs] = useState<Document[]>(initialDocuments);
-  const [selectedSubjectId, setSelectedSubjectId] = useState<string | null>(subjects[0]?.id || null);
-  const [view, setView] = useState<'docs' | 'schedule'>('docs');
-  const [search, setSearch] = useState('');
-  const [sortKey, setSortKey] = useState<'date' | 'name'>('date');
-  const [sortDir, setSortDir] = useState<'desc' | 'asc'>('desc');
-  const [toasts, setToasts] = useState<Array<{ id: number; message: string }>>([]);
-  const [showFavOnly, setShowFavOnly] = useState(false);
-  const [page, setPage] = useState(1);
-  const pageSize = 6;
-  const searchInputRef = useRef<HTMLInputElement | null>(null);
-  const mainRef = useRef<HTMLDivElement | null>(null);
-  const [previewDoc, setPreviewDoc] = useState<Document | null>(null);
+  const [subjects, setSubjects] = useState<Subject[]>(initialSubjects); //state để lưu danh sách môn học
+  const [docs, setDocs] = useState<Document[]>(initialDocuments); //state để lưu danh sách tài liệu
+  const [selectedSubjectId, setSelectedSubjectId] = useState<string | null>(subjects[0]?.id || null); //state để lưu môn học được chọn
+  const [view, setView] = useState<'docs' | 'schedule'>('docs'); //state để lưu view hiện tại
+  const [search, setSearch] = useState(''); //state để lưu từ khóa tìm kiếm
+  const [sortKey, setSortKey] = useState<'date' | 'name'>('date'); //state để lưu key sắp xếp
+  const [sortDir, setSortDir] = useState<'desc' | 'asc'>('desc'); //state để lưu direction sắp xếp
+  const [toasts, setToasts] = useState<Array<{ id: number; message: string }>>([]); //state để lưu toast
+  const [showFavOnly, setShowFavOnly] = useState(false); //state để lưu view chỉ hiển thị tài liệu yêu thích
+  const [page, setPage] = useState(1); //state để lưu trang hiện tại
+  const pageSize = 6; //số tài liệu hiển thị trên mỗi trang
+  const searchInputRef = useRef<HTMLInputElement | null>(null); //ref để focus vào input tìm kiếm
+  const mainRef = useRef<HTMLDivElement | null>(null); //ref để scroll vào main
+  const [previewDoc, setPreviewDoc] = useState<Document | null>(null); //state để lưu tài liệu được preview
 
   useEffect(() => {
-    // Cleanup for object URLs
+    // Xóa URL object khi component unmount
     return () => {
       docs.forEach(doc => {
         if (doc.fileUrl) {
@@ -35,7 +36,7 @@ function App() {
     };
   }, [docs]);
 
-  // Load data from backend if configured; else from localStorage
+  // Tải dữ liệu từ backend nếu có cấu hình; nếu không thì từ localStorage
   useEffect(() => {
     (async () => {
       if (api.hasBackend()) {
@@ -72,7 +73,7 @@ function App() {
     })();
   }, []);
 
-  // Persist to localStorage (exclude File objects) only when no backend
+  // Lưu dữ liệu vào localStorage (exclude File objects) chỉ khi không có backend
   useEffect(() => {
     if (api.hasBackend()) return;
     try {
@@ -82,7 +83,7 @@ function App() {
     } catch {}
   }, [subjects, docs]);
 
-  // Keyboard: '/' focuses search, 'n' scrolls to form
+  // Xử lý keyboard: '/' focuses search, 'n' scrolls to form
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key === '/' && !('value' in (document.activeElement as any))) {
@@ -97,7 +98,7 @@ function App() {
     return () => window.removeEventListener('keydown', onKey);
   }, []);
 
-  // Document CRUD
+  // Xử lý Document CRUD
   const handleDocDelete = async (id: string) => {
     if (api.hasBackend()) {
       try {
@@ -147,7 +148,7 @@ function App() {
     }
   };
 
-  // Subject CRUD
+  // Xử lý Subject CRUD
   const handleSubjectAdd = async (name: string) => {
     if (api.hasBackend()) {
       try {
@@ -204,7 +205,7 @@ function App() {
     }
   };
 
-  // When backend is enabled, refetch docs on subject change
+  // Khi backend được bật, tải lại tài liệu khi thay đổi môn học
   useEffect(() => {
     (async () => {
       if (!api.hasBackend()) return;
