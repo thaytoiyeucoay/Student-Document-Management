@@ -5,6 +5,8 @@ from pydantic import BaseModel, Field, AnyHttpUrl
 class SubjectBase(BaseModel):
     name: str
     describes: Optional[str] = None
+    # Academic semester identifier, e.g., "2025.1" or "2025.2"
+    semester: Optional[str] = None
 
 
 class SubjectCreate(SubjectBase):
@@ -14,6 +16,7 @@ class SubjectCreate(SubjectBase):
 class SubjectUpdate(BaseModel):
     name: Optional[str] = None
     describes: Optional[str] = None
+    semester: Optional[str] = None
 
 
 class SubjectOut(SubjectBase):

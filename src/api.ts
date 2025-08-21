@@ -1,4 +1,5 @@
 import type { Document, Subject, ScheduleItem } from '../types';
+import type { Annotation } from '../types';
 
 const apiBase = import.meta.env.VITE_API_URL as string | undefined;
 
@@ -54,7 +55,7 @@ function mapDocToApi(d: Partial<Document>): any {
 }
 
 function mapSubjectFromApi(s: any): Subject {
-  return { id: s.id, name: s.name, describes: s.describes } as any;
+  return { id: s.id, name: s.name, semester: s.semester, describes: s.describes } as any;
 }
 
 export const api = {
@@ -72,6 +73,7 @@ export const api = {
       endsAt: s.ends_at,
       location: s.location ?? null,
       note: s.note ?? null,
+      recurrenceRule: s.recurrence_rule ?? null,
     } satisfies ScheduleItem));
   },
   async createSchedule(payload: Omit<ScheduleItem, 'id'>): Promise<ScheduleItem> {
@@ -82,6 +84,7 @@ export const api = {
       ends_at: payload.endsAt,
       location: payload.location ?? undefined,
       note: payload.note ?? undefined,
+      recurrence_rule: payload.recurrenceRule ?? undefined,
     };
     const s = await request<any>(`/schedules`, { method: 'POST', body: JSON.stringify(body) });
     return {
@@ -92,6 +95,7 @@ export const api = {
       endsAt: s.ends_at,
       location: s.location ?? null,
       note: s.note ?? null,
+      recurrenceRule: s.recurrence_rule ?? null,
     };
   },
   async updateSchedule(id: string, patch: Partial<Omit<ScheduleItem, 'id'>>): Promise<ScheduleItem> {
@@ -102,6 +106,7 @@ export const api = {
       ends_at: patch.endsAt,
       location: patch.location,
       note: patch.note,
+      recurrence_rule: patch.recurrenceRule,
     };
     Object.keys(body).forEach((k) => body[k] === undefined && delete body[k]);
     const s = await request<any>(`/schedules/${id}`, { method: 'PATCH', body: JSON.stringify(body) });
@@ -113,6 +118,7 @@ export const api = {
       endsAt: s.ends_at,
       location: s.location ?? null,
       note: s.note ?? null,
+      recurrenceRule: s.recurrence_rule ?? null,
     };
   },
   async deleteSchedule(id: string): Promise<void> {
@@ -123,17 +129,17 @@ export const api = {
     const data = await request<any[]>(`/subjects`);
     return data.map(mapSubjectFromApi);
   },
-  async createSubject(name: string, describes?: string): Promise<Subject> {
+  async createSubject(name: string, describes?: string, semester?: string): Promise<Subject> {
     const data = await request<any>(`/subjects`, {
       method: 'POST',
-      body: JSON.stringify({ name, describes }),
+      body: JSON.stringify({ name, describes, semester }),
     });
     return mapSubjectFromApi(data);
   },
   async updateSubject(subject: Subject): Promise<Subject> {
     const data = await request<any>(`/subjects/${subject.id}` , {
       method: 'PATCH',
-      body: JSON.stringify({ name: subject.name, describes: (subject as any).describes }),
+      body: JSON.stringify({ name: subject.name, describes: (subject as any).describes, semester: (subject as any).semester }),
     });
     return mapSubjectFromApi(data);
   },
@@ -174,6 +180,72 @@ export const api = {
   },
   async deleteDocument(id: string): Promise<void> {
     await request(`/documents/${id}`, { method: 'DELETE' });
+  },
+
+  // Annotations
+  async listAnnotations(documentId: string): Promise<Annotation[]> {
+    if (!hasBackend()) {
+      try {
+        const raw = localStorage.getItem('annotations');
+        const arr = raw ? (JSON.parse(raw) as Annotation[]) : [];
+        return arr.filter(a => a.document_id === documentId && !a.is_deleted);
+      } catch {
+        return [];
+      }
+    }
+    const data = await request<any[]>(`/annotations?document_id=${encodeURIComponent(documentId)}`);
+    return data as Annotation[];
+  },
+  async createAnnotation(payload: Omit<Annotation, 'id' | 'created_at' | 'is_deleted'> & { is_deleted?: boolean }): Promise<Annotation> {
+    if (!hasBackend()) {
+      const newAnno: Annotation = {
+        id: crypto.randomUUID(),
+        created_at: new Date().toISOString(),
+        is_deleted: false,
+        ...payload,
+      } as Annotation;
+      try {
+        const raw = localStorage.getItem('annotations');
+        const arr = raw ? (JSON.parse(raw) as Annotation[]) : [];
+        arr.unshift(newAnno);
+        localStorage.setItem('annotations', JSON.stringify(arr));
+      } catch {}
+      return newAnno;
+    }
+    const data = await request<any>(`/annotations`, { method: 'POST', body: JSON.stringify(payload) });
+    return data as Annotation;
+  },
+  async updateAnnotation(id: string, patch: Partial<Annotation>): Promise<Annotation> {
+    if (!hasBackend()) {
+      try {
+        const raw = localStorage.getItem('annotations');
+        const arr = raw ? (JSON.parse(raw) as Annotation[]) : [];
+        const idx = arr.findIndex(a => a.id === id);
+        if (idx >= 0) {
+          arr[idx] = { ...arr[idx], ...patch } as Annotation;
+          localStorage.setItem('annotations', JSON.stringify(arr));
+          return arr[idx];
+        }
+      } catch {}
+      throw new Error('Annotation not found');
+    }
+    const data = await request<any>(`/annotations/${id}`, { method: 'PATCH', body: JSON.stringify(patch) });
+    return data as Annotation;
+  },
+  async deleteAnnotation(id: string): Promise<void> {
+    if (!hasBackend()) {
+      try {
+        const raw = localStorage.getItem('annotations');
+        const arr = raw ? (JSON.parse(raw) as Annotation[]) : [];
+        const idx = arr.findIndex(a => a.id === id);
+        if (idx >= 0) {
+          arr[idx].is_deleted = true;
+          localStorage.setItem('annotations', JSON.stringify(arr));
+        }
+      } catch {}
+      return;
+    }
+    await request(`/annotations/${id}`, { method: 'DELETE' });
   },
 };
 

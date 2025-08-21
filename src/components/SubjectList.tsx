@@ -1,5 +1,6 @@
-import { useState } from 'react';
+import { useMemo, useState, useEffect } from 'react';
 import type { Subject } from '../../types';
+import { semesters, compareSemesters } from '../semesters';
 
 interface SubjectListProps {
   subjects: Subject[];
@@ -7,29 +8,57 @@ interface SubjectListProps {
   onSelectSubject: (id: string) => void | Promise<void>;
   onUpdateSubject: (subject: Subject) => void | Promise<void>;
   onDeleteSubject: (id: string) => void | Promise<void>;
+  currentSemester: string; // e.g., "2025.1"
 }
 
-const SubjectList = ({ subjects, selectedSubjectId, onSelectSubject, onUpdateSubject, onDeleteSubject }: SubjectListProps) => {
+const SubjectList = ({ subjects, selectedSubjectId, onSelectSubject, onUpdateSubject, onDeleteSubject, currentSemester }: SubjectListProps) => {
   const [editingSubjectId, setEditingSubjectId] = useState<string | null>(null);
   const [editingText, setEditingText] = useState('');
+  const [selectedSemester, setSelectedSemester] = useState<string>(currentSemester || '');
+  const [editingSemester, setEditingSemester] = useState<string>('');
+
+  useEffect(() => {
+    setSelectedSemester(currentSemester || '');
+  }, [currentSemester]);
+
+  const filtered = useMemo(() => {
+    return selectedSemester
+      ? subjects.filter(s => (s as any).semester === selectedSemester)
+      : subjects;
+  }, [subjects, selectedSemester]);
 
   const handleEdit = (subject: Subject) => {
     setEditingSubjectId(subject.id);
     setEditingText(subject.name);
+    setEditingSemester((subject as any).semester || '');
   };
 
-  const handleSave = (id: string) => {
+  const handleSave = (subject: Subject) => {
     if (!editingText.trim()) return;
-    onUpdateSubject({ id, name: editingText });
+    onUpdateSubject({ id: subject.id, name: editingText, semester: editingSemester || undefined } as Subject);
     setEditingSubjectId(null);
     setEditingText('');
+    setEditingSemester('');
   };
 
   return (
     <div className="rounded-xl p-4 bg-white/10 backdrop-blur-md border border-white/30 shadow-lg ring-1 ring-white/20">
-      <h2 className="text-lg font-semibold text-white drop-shadow mb-3">Danh sách môn học</h2>
+      <div className="flex items-center justify-between mb-3 gap-2">
+        <h2 className="text-lg font-semibold text-white drop-shadow">Danh sách môn học</h2>
+        <select
+          value={selectedSemester}
+          onChange={(e) => setSelectedSemester(e.target.value)}
+          className="px-2 py-1 rounded-md bg-white text-slate-900 text-sm border border-slate-300 focus:outline-none focus:ring-2 focus:ring-slate-400 focus:border-slate-400"
+          title="Lọc theo kỳ học"
+        >
+          <option value="">Tất cả kỳ</option>
+          {semesters.map(s => (
+            <option key={s} value={s}>{s}</option>
+          ))}
+        </select>
+      </div>
       <ul className="space-y-1">
-        {subjects.map(subject => (
+        {filtered.map(subject => (
           <li key={subject.id} className="group flex items-center gap-2 rounded-md">
             {editingSubjectId === subject.id ? (
               <>
@@ -37,10 +66,21 @@ const SubjectList = ({ subjects, selectedSubjectId, onSelectSubject, onUpdateSub
                   type="text"
                   value={editingText}
                   onChange={(e) => setEditingText(e.target.value)}
-                  className="flex-grow px-3 py-2 rounded-md text-sm shadow-sm placeholder-white/60
+                  className="w-1/2 min-w-[140px] px-3 py-2 rounded-md text-sm shadow-sm placeholder-white/60
                     bg-white/15 border border-white/15 text-white focus:outline-none focus:ring-2 focus:ring-slate-300 focus:border-transparent transition"
                 />
-                <button onClick={() => handleSave(subject.id)} className="p-2 text-white/85 hover:text-white transition-colors">
+                <select
+                  value={editingSemester}
+                  onChange={(e) => setEditingSemester(e.target.value)}
+                  className="px-2 py-2 rounded-md bg-white text-slate-900 text-sm border border-slate-300 focus:outline-none focus:ring-2 focus:ring-slate-400 focus:border-slate-400 w-18 shrink-0"
+                  title="Kỳ học"
+                >
+                  <option value="">- Kỳ học -</option>
+                  {semesters.map(s => (
+                    <option key={s} value={s}>{s}</option>
+                  ))}
+                </select>
+                <button onClick={() => handleSave(subject)} className="p-2 text-white/85 hover:text-white transition-colors">
                   <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
                     <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
                   </svg>
@@ -55,7 +95,28 @@ const SubjectList = ({ subjects, selectedSubjectId, onSelectSubject, onUpdateSub
                       ? 'text-white bg-gradient-to-r from-slate-700/80 via-slate-600/80 to-slate-500/80 shadow-lg ring-1 ring-white/20'
                       : 'text-white/90 hover:bg-white/10 border border-transparent'
                   }`}>
-                  {subject.name}
+                  <div className="flex items-center justify-between">
+                    <span>{subject.name}</span>
+                    {subject.semester && (
+                      <span className="ml-2 inline-flex items-center text-[10px] px-2 py-0.5 rounded-full bg-white/10 border border-white/20 text-white/80">
+                        {subject.semester}
+                      </span>
+                    )}
+                    {/* Status relative to current semester */}
+                    {subject.semester && (
+                      (() => {
+                        const cmp = compareSemesters(subject.semester!, currentSemester);
+                        const label = cmp === 0 ? 'Đang học' : (cmp < 0 ? 'Đã học' : 'Chưa học');
+                        const color = cmp === 0 ? 'bg-emerald-500/20 border-emerald-400/40 text-emerald-100'
+                          : (cmp < 0 ? 'bg-sky-500/20 border-sky-400/40 text-sky-100' : 'bg-amber-500/20 border-amber-400/40 text-amber-100');
+                        return (
+                          <span className={`ml-2 inline-flex items-center text-[10px] px-2 py-0.5 rounded-full border ${color}`}>
+                            {label}
+                          </span>
+                        );
+                      })()
+                    )}
+                  </div>
                 </button>
                 <div className="flex items-center opacity-0 group-hover:opacity-100 transition-opacity duration-200">
                   <button onClick={() => handleEdit(subject)} className="p-2 text-white/85 hover:bg-white/15 rounded-md">

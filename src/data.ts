@@ -1,9 +1,9 @@
 import type { Document, Subject } from '../types';
 
 export const initialSubjects: Subject[] = [
-  { id: '1', name: 'Cơ sở dữ liệu' },
-  { id: '2', name: 'Mạng máy tính' },
-  { id: '3', name: 'Trí tuệ nhân tạo' },
+  { id: '1', name: 'Cơ sở dữ liệu', semester: '2024.1' },
+  { id: '2', name: 'Mạng máy tính', semester: '2024.2' },
+  { id: '3', name: 'Trí tuệ nhân tạo', semester: '2025.1' },
 ];
 
 export const initialDocuments: Document[] = [
