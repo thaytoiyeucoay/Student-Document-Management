@@ -1,13 +1,16 @@
 from typing import List, Optional
 from fastapi import APIRouter, Depends, UploadFile, File, HTTPException, Form
+import logging
 from ..schemas import DocumentCreate, DocumentUpdate, DocumentOut
 from ..supabase_client import get_supabase
 from ..auth import get_current_user
 from ..config import get_settings
 import uuid
 import json
+from ..rag import get_engine
 
 router = APIRouter()
+logger = logging.getLogger("rag")
 
 
 def _table_name() -> str:
@@ -130,4 +133,24 @@ async def upload_document_file(doc_id: str, file: UploadFile = File(...), user=D
     updated = update.execute()
     if not updated.data:
         raise HTTPException(status_code=500, detail="Failed to update document with file info")
-    return updated.data[0]
+    saved_doc = updated.data[0]
+
+    # Trigger RAG indexing (best-effort)
+    try:
+        engine = get_engine()
+        subject_id = str(saved_doc.get("subject_id")) if saved_doc.get("subject_id") is not None else None
+        user_id = (user or {}).get("sub") if isinstance(user, dict) else None
+        filename = file.filename or path.split("/")[-1]
+        res = engine.index_document(
+            document_id=str(doc_id),
+            subject_id=subject_id,
+            user_id=user_id,
+            file_bytes=content,
+            file_name=filename,
+        )
+        logger.info("RAG indexed doc_id=%s chunks=%s", doc_id, (res or {}).get("chunks"))
+    except Exception as e:
+        # Log error but do not block the upload flow
+        logger.exception("RAG indexing failed for doc_id=%s: %s", doc_id, e)
+
+    return saved_doc

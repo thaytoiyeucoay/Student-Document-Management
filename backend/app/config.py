@@ -19,7 +19,7 @@ class Settings(BaseSettings):
 
     # Pydantic v2 config: load env from backend/.env (not project root .env)
     _env_file = str((Path(__file__).resolve().parent.parent / ".env").resolve())
-    model_config = SettingsConfigDict(env_file=_env_file, case_sensitive=False)
+    model_config = SettingsConfigDict(env_file=_env_file, case_sensitive=False, extra="ignore")
 
 
 @lru_cache()

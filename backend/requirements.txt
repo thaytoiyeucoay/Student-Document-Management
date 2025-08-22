@@ -6,3 +6,17 @@ pyjwt[crypto]==2.8.0
 supabase==2.6.0
 pydantic>=2.7.0
 pydantic-settings>=2.2.1
+
+# RAG stack (all free, local)
+chromadb==0.5.3
+sentence-transformers==3.0.1
+pypdf==4.3.1
+python-docx==1.1.2
+nltk==3.9.1
+# Optional local LLM via Ollama (if installed separately)
+ollama==0.3.2
+
+# Optional cloud providers for embeddings/LLM
+openai==1.40.0
+google-generativeai==0.7.2
+numpy==1.26.4

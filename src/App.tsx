@@ -10,6 +10,7 @@ import { initialSubjects, initialDocuments } from './data'; //dữ liệu ban đ
 import type { Document, Subject } from '../types'; //kiểu dữ liệu
 import PDFViewer from './components/PDFViewer';
 import { semesters, compareSemesters } from './semesters';
+import RAGChat from './components/RAGChat';
 
 function App() {
   const [subjects, setSubjects] = useState<Subject[]>(initialSubjects); //state để lưu danh sách môn học
@@ -34,6 +35,7 @@ function App() {
     }
   });
   const [dashboardExpanded, setDashboardExpanded] = useState<boolean>(false);
+  const [showChat, setShowChat] = useState<boolean>(false);
 
   useEffect(() => {
     // Xóa URL object khi component unmount
@@ -98,12 +100,12 @@ function App() {
     } catch {}
   }, [subjects, docs]);
 
-  // Persist current semester
+  // Học kỳ hiện tại
   useEffect(() => {
     try { localStorage.setItem('currentSemester', currentSemester); } catch {}
   }, [currentSemester]);
 
-  // When current semester changes, prefer selecting a subject in that semester
+  // Khi học kỳ thay đổi, chọn môn học trong học kỳ đó
   useEffect(() => {
     if (!subjects.length) return;
     const inCurrent = subjects.find(s => s.semester === currentSemester);
@@ -363,6 +365,7 @@ function App() {
                 <button onClick={() => setView('docs')} className={`px-3 py-2 text-sm transition ${view === 'docs' ? 'bg-white/20 text-white' : 'text-white/80 hover:bg-white/15'}`}>Tài liệu</button>
                 <button onClick={() => setView('schedule')} className={`px-3 py-2 text-sm transition ${view === 'schedule' ? 'bg-white/20 text-white' : 'text-white/80 hover:bg-white/15'}`}>Thời khóa biểu</button>
               </div>
+              <button onClick={() => setShowChat(true)} className="px-3 py-2 text-sm rounded-md bg-emerald-500/20 border border-emerald-400/40 text-emerald-100 hover:bg-emerald-500/25">💬 Chatbot RAG</button>
             </div>
           </div>
 
@@ -670,6 +673,9 @@ function App() {
           </div>
         ))}
       </div>
+      {showChat && (
+        <RAGChat subjectId={selectedSubjectId ?? undefined} onClose={() => setShowChat(false)} />
+      )}
     </div>
   );
 }
