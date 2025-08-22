@@ -60,11 +60,12 @@ function mapSubjectFromApi(s: any): Subject {
 
 export const api = {
   hasBackend,
-  async ragQuery(params: { query: string; subjectId?: string; topK?: number }): Promise<{ answer: string; contexts: string[] }>{
+  async ragQuery(params: { query: string; subjectId?: string; topK?: number }): Promise<{ answer: string; contexts: Array<string | { title?: string; url?: string; page?: number | string; snippet?: string }> }> {
     const body: any = { query: params.query, top_k: params.topK ?? 5 };
     if (params.subjectId) body.subject_id = params.subjectId;
     const data = await request<any>(`/rag/query`, { method: 'POST', body: JSON.stringify(body) });
-    return { answer: data.answer as string, contexts: (data.contexts as string[]) ?? [] };
+    const ctx = Array.isArray(data.contexts) ? data.contexts : [];
+    return { answer: data.answer as string, contexts: ctx };
   },
   // Schedules
   async listSchedules(params: { from: string; to: string; subjectId?: string }): Promise<ScheduleItem[]> {

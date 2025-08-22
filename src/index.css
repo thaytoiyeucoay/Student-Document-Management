@@ -1,2 +1,35 @@
 @import "tailwindcss";
-  
+
+/* Basic code styles (no external highlighter) */
+pre, code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+}
+pre {
+  line-height: 1.45;
+  tab-size: 2;
+}
+pre code {
+  white-space: pre;
+}
+code {
+  background-color: rgba(0,0,0,0.35);
+  border: 1px solid rgba(255,255,255,0.08);
+  border-radius: 0.375rem;
+}
+
+/* Optional language badge using data-lang attribute */
+pre[data-lang]::before {
+  content: attr(data-lang);
+  position: absolute;
+  transform: translateY(-0.7rem);
+  right: 0.75rem;
+  background: rgba(15, 23, 42, 0.8);
+  color: rgba(255,255,255,0.8);
+  border: 1px solid rgba(255,255,255,0.15);
+  font-size: 0.65rem;
+  padding: 0.1rem 0.35rem;
+  border-radius: 0.25rem;
+}
+pre[data-lang] {
+  position: relative;
+}

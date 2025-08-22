@@ -673,6 +673,17 @@ function App() {
           </div>
         ))}
       </div>
+      {/* Floating chat button */}
+      {!showChat && (
+        <button
+          onClick={() => setShowChat(true)}
+          title="Mở Chatbot"
+          aria-label="Mở Chatbot"
+          className="fixed bottom-6 right-6 z-40 h-14 w-14 rounded-full bg-emerald-500/90 hover:bg-emerald-500 text-white shadow-xl border border-emerald-200/50 flex items-center justify-center text-2xl"
+        >
+          🤖
+        </button>
+      )}
       {showChat && (
         <RAGChat subjectId={selectedSubjectId ?? undefined} onClose={() => setShowChat(false)} />
       )}
