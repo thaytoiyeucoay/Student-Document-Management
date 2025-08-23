@@ -33,3 +33,24 @@ pre[data-lang]::before {
 pre[data-lang] {
   position: relative;
 }
+
+/* Force high-contrast styling for all native selects and options */
+select,
+option,
+optgroup {
+  background-color: #ffffff !important;
+  color: #000000 !important;
+}
+
+/* Also ensure borders look consistent */
+select {
+  border-color: #e5e7eb !important; /* slate-200 */
+}
+
+/* In dark mode, keep the same high-contrast look */
+.dark select,
+.dark option,
+.dark optgroup {
+  background-color: #ffffff !important;
+  color: #000000 !important;
+}

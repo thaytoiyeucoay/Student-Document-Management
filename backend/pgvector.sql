@@ -21,7 +21,7 @@ create table if not exists rag_chunks (
   chunk_index int,
   content text,
   -- Set dimension to match your embedding model, default here uses 1536 (OpenAI text-embedding-3-small)
-  embedding vector(1536),
+  embedding vector(768),
   created_at timestamptz not null default now()
 );
 

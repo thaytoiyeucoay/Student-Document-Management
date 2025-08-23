@@ -32,12 +32,15 @@ class RAGSettings(BaseSettings):
     embed_model_name: str = "sentence-transformers/all-MiniLM-L6-v2"
     collection_name: str = "student_docs"
     # Chunking
-    chunk_size: int = 500                # RAG_CHUNK_SIZE
-    chunk_overlap: int = 80              # RAG_CHUNK_OVERLAP
+    chunk_size: int = 850                # RAG_CHUNK_SIZE
+    chunk_overlap: int = 150              # RAG_CHUNK_OVERLAP
     # Backends/providers
     store_backend: str = "chroma"        # chroma | supabase
     embed_provider: str = "local"        # local | openai | gemini
     llm_provider: str = "none"           # none | ollama | openai | gemini
+    # Re-ranking
+    rerank: bool = False
+    rerank_model: str = "cross-encoder/ms-marco-MiniLM-L-6-v2"
     # OpenAI
     openai_api_key: Optional[str] = None
     openai_embed_model: str = "text-embedding-3-small"
@@ -57,6 +60,7 @@ class RAGEngine:
     _client: Optional[chromadb.Client] = None
     _collection: Optional[Any] = None
     _svs: Optional[SupabaseVectorStore] = None
+    _cross_encoder: Any = None
 
     def __init__(self, settings: Optional[RAGSettings] = None) -> None:
         self.settings = settings or RAGSettings()
@@ -122,30 +126,90 @@ class RAGEngine:
                         subject_id: Optional[str],
                         user_id: Optional[str],
                         file_bytes: bytes,
-                        file_name: str) -> Dict[str, Any]:
+                        file_name: str,
+                        extra_metadata: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+        logger = logging.getLogger("rag")
+        logger.info("[RAG] Index start doc_id=%s subject_id=%s user_id=%s file=%s", document_id, subject_id, user_id, file_name)
+        # Update job: starting -> chunking
+        try:
+            from .rag_jobs import job_store
+            job_store.update(document_id, stage="chunking", progress=10, message="Đang tách đoạn (chunking)")
+        except Exception:
+            pass
         text = self._extract_text(file_bytes=file_bytes, file_name=file_name)
         if not text.strip():
+            logger.warning("[RAG] Index skip doc_id=%s: no text extracted", document_id)
+            try:
+                from .rag_jobs import job_store
+                job_store.fail(document_id, "Không trích xuất được nội dung")
+            except Exception:
+                pass
             return {"ok": False, "chunks": 0, "message": "No text extracted"}
         chunks = self._split_text(text)
+        logger.info("[RAG] Index chunked doc_id=%s chunks=%d chunk_size=%s overlap=%s", document_id, len(chunks), self.settings.chunk_size, self.settings.chunk_overlap)
+        try:
+            from .rag_jobs import job_store
+            job_store.update(document_id, stage="embedding", progress=40, message=f"Đang tạo embedding cho {len(chunks)} đoạn")
+        except Exception:
+            pass
         ids = []
         metadatas = []
         documents = []
         for i, chunk in enumerate(chunks):
             ids.append(f"{document_id}-{i}-{uuid.uuid4().hex[:8]}")
-            metadatas.append({
+            # Standardize metadata per chunk
+            meta = {
                 "document_id": str(document_id),
                 "subject_id": subject_id or "",
                 "user_id": user_id or "",
                 "file_name": file_name,
-                "chunk_index": i,
-            })
+            }
+            # derive file extension and source type
+            try:
+                lower = (file_name or "").lower()
+                ext = lower.split('.')[-1] if '.' in lower else ''
+                if ext:
+                    meta["file_ext"] = ext
+            except Exception:
+                pass
+            if isinstance(extra_metadata, dict):
+                # allow: tags (list[str]), author (str), created_at (iso/ts), file_url (str)
+                for k in ("tags", "author", "created_at", "file_url"):
+                    if k in extra_metadata:
+                        meta[k] = extra_metadata[k]
+                # set source based on file_url presence
+                try:
+                    meta["source"] = "url" if (extra_metadata.get("file_url") or "") else "local"
+                except Exception:
+                    pass
+            metadatas.append(meta)
             documents.append(chunk)
         embeddings = self._embed_texts(documents)
+        try:
+            dim = len(embeddings[0]) if embeddings and isinstance(embeddings[0], list) else None
+        except Exception:
+            dim = None
+        logger.info("[RAG] Index embeddings computed doc_id=%s provider=%s dim=%s", document_id, self.settings.embed_provider, dim)
         if self.settings.store_backend == "chroma":
-            self._collection.add(ids=ids, documents=documents, metadatas=metadatas, embeddings=embeddings)
+            try:
+                self._collection.add(ids=ids, documents=documents, metadatas=metadatas, embeddings=embeddings)
+                logger.info("[RAG] Index stored (chroma) doc_id=%s chunks=%d", document_id, len(chunks))
+            except Exception as e:
+                logger.exception("[RAG] Index store failed (chroma) doc_id=%s error=%s", document_id, e)
+                try:
+                    from .rag_jobs import job_store
+                    job_store.fail(document_id, f"Lưu vào Chroma thất bại: {e}")
+                except Exception:
+                    pass
+                raise
         else:
             # Supabase pgvector storage
             try:
+                try:
+                    from .rag_jobs import job_store
+                    job_store.update(document_id, stage="storing", progress=70, message="Đang lưu embeddings vào vector store")
+                except Exception:
+                    pass
                 self._svs.add_chunks(
                     document_id=document_id,
                     subject_id=subject_id,
@@ -156,7 +220,19 @@ class RAGEngine:
                 )
             except Exception as e:
                 # Bubble up with context so caller can log
+                logger.exception("[RAG] Index store failed (supabase) doc_id=%s error=%s", document_id, e)
+                try:
+                    from .rag_jobs import job_store
+                    job_store.fail(document_id, f"Lưu vào Supabase thất bại: {e}")
+                except Exception:
+                    pass
                 raise RuntimeError(f"RAG Supabase add_chunks failed for document {document_id}: {e}")
+        logger.info("[RAG] Index success doc_id=%s chunks=%d", document_id, len(chunks))
+        try:
+            from .rag_jobs import job_store
+            job_store.success(document_id)
+        except Exception:
+            pass
         return {"ok": True, "chunks": len(chunks)}
 
     async def index_document_from_url(self, *,
@@ -164,37 +240,181 @@ class RAGEngine:
                                       subject_id: Optional[str],
                                       user_id: Optional[str],
                                       url: str,
-                                      file_name: Optional[str] = None) -> Dict[str, Any]:
+                                      file_name: Optional[str] = None,
+                                      extra_metadata: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
         async with httpx.AsyncClient(timeout=60) as client:
             resp = await client.get(url)
             resp.raise_for_status()
             content = resp.content
         name = file_name or url.split("?")[0].split("/")[-1] or "file.bin"
-        return self.index_document(document_id=document_id, subject_id=subject_id, user_id=user_id, file_bytes=content, file_name=name)
+        return self.index_document(document_id=document_id, subject_id=subject_id, user_id=user_id, file_bytes=content, file_name=name, extra_metadata=extra_metadata)
 
     # -------- Retrieval & QA --------
-    def retrieve(self, query: str, *, top_k: int = 5, subject_id: Optional[str] = None, user_id: Optional[str] = None) -> List[Dict[str, Any]]:
-        if self.settings.store_backend == "chroma":
+    def retrieve(self, query: str, *, top_k: int = 5, subject_id: Optional[str] = None, subject_ids: Optional[List[str]] = None, user_id: Optional[str] = None, tags: Optional[List[str]] = None, author: Optional[str] = None, time_from: Optional[str] = None, time_to: Optional[str] = None, source: Optional[str] = None, file_type: Optional[str] = None, page_from: Optional[int] = None, page_to: Optional[int] = None) -> List[Dict[str, Any]]:
+        logger = logging.getLogger("rag")
+        backend = self.settings.store_backend
+        logger.info("[RAG] Retrieve start backend=%s top_k=%s subj=%s user=%s", backend, top_k, subject_id, user_id)
+        if backend == "chroma":
+            if not self._collection:
+                raise RuntimeError("Chroma collection not initialized")
             where: Dict[str, Any] = {}
-            if subject_id:
-                where["subject_id"] = subject_id
-            if user_id:
-                where["user_id"] = user_id
-            results = self._collection.query(
-                query_texts=[query],
-                n_results=max(1, min(top_k, 20)),
-                where=where or None,
-            )
+            try:
+                # Subject filter (single or multi)
+                if subject_ids:
+                    where["subject_id"] = {"$in": subject_ids}
+                elif subject_id is not None:
+                    where["subject_id"] = subject_id
+                if author:
+                    where["author"] = author
+                if tags:
+                    # require any overlap
+                    where["tags"] = {"$in": tags}
+                if source in ("local", "url"):
+                    where["source"] = source
+                if file_type:
+                    # rely on file_ext metadata set at index time
+                    where["file_ext"] = file_type.lower()
+                # time range: created_at comparable if stored as ISO string; $gte/$lte work lexicographically
+                time_clause: Dict[str, Any] = {}
+                if time_from:
+                    time_clause["$gte"] = time_from
+                if time_to:
+                    time_clause["$lte"] = time_to
+                if time_clause:
+                    where["created_at"] = time_clause
+                # page range filter if per-chunk page metadata exists
+                if page_from is not None or page_to is not None:
+                    p: Dict[str, Any] = {}
+                    if page_from is not None:
+                        p["$gte"] = page_from
+                    if page_to is not None:
+                        p["$lte"] = page_to
+                    where["page"] = p
+            except Exception:
+                pass
+            try:
+                query_emb = self._embed_texts([query])[0]
+                results = self._collection.query(
+                    query_embeddings=[query_emb],
+                    n_results=max(1, min(top_k, 20)),
+                    where=where or None,
+                )
+            except Exception as e:
+                logger.exception("[RAG] Retrieve failed (chroma) error=%s", e)
+                raise
             outs: List[Dict[str, Any]] = []
             docs = results.get("documents", [[]])[0]
             metas = results.get("metadatas", [[]])[0]
             dists = results.get("distances", [[]])[0]
             for d, m, dist in zip(docs, metas, dists):
-                outs.append({"text": d, "metadata": m, "score": float(1 - dist) if dist is not None else None})
+                # Enrich citation structure
+                url = (m or {}).get("file_url") if isinstance(m, dict) else None
+                title = (m or {}).get("file_name") if isinstance(m, dict) else None
+                page = (m or {}).get("page") if isinstance(m, dict) else None
+                outs.append({
+                    "text": d,
+                    "metadata": m,
+                    "score": float(1 - dist) if dist is not None else None,
+                    "citation": {"title": title, "url": url, "page": page, "snippet": d},
+                })
+            outs = self._maybe_rerank(query, outs, top_k)
+            logger.info("[RAG] Retrieve success backend=chroma results=%d", len(outs))
             return outs
         else:
-            q_emb = self._embed_texts([query])[0]
-            return self._svs.query(query_embedding=q_emb, top_k=top_k, subject_id=subject_id, user_id=user_id)
+            try:
+                q_emb = self._embed_texts([query])[0]
+                outs = self._svs.query(query_embedding=q_emb, top_k=top_k, subject_id=subject_id, user_id=user_id)
+                # Enrich with document metadata for filtering and citation
+                try:
+                    from .supabase_client import get_supabase
+                    sb = get_supabase()
+                    doc_ids = sorted({m.get("document_id") for m in (o.get("metadata") or {} for o in outs) if m.get("document_id") is not None})
+                    doc_meta: Dict[Any, Dict[str, Any]] = {}
+                    if doc_ids:
+                        res = sb.table("documents").select("id,author,tags,created_at,file_url,subject_id,name,file_path").in_("id", doc_ids).execute()
+                        for row in res.data or []:
+                            doc_meta[row["id"]] = row
+                    # attach and filter
+                    filtered: List[Dict[str, Any]] = []
+                    for o in outs:
+                        m = o.get("metadata") or {}
+                        did = m.get("document_id")
+                        drow = doc_meta.get(did) if did in doc_meta else None
+                        if drow:
+                            m["author"] = drow.get("author")
+                            m["tags"] = drow.get("tags") or []
+                            m["created_at"] = drow.get("created_at")
+                            m["file_url"] = drow.get("file_url")
+                            m["subject_id"] = drow.get("subject_id") or m.get("subject_id")
+                            # infer file_ext/source from name/url
+                            try:
+                                fname = (drow.get("file_path") or drow.get("name") or "").lower()
+                                ext = fname.split('.')[-1] if '.' in fname else ''
+                                if ext:
+                                    m["file_ext"] = ext
+                            except Exception:
+                                pass
+                            try:
+                                m["source"] = "url" if (m.get("file_url") or "") else "local"
+                            except Exception:
+                                pass
+                        # apply filters
+                        if author and (m.get("author") or "") != author:
+                            continue
+                        if tags:
+                            mtags = m.get("tags") or []
+                            if not any(t in (mtags or []) for t in tags):
+                                continue
+                        if time_from or time_to:
+                            ts = m.get("created_at")
+                            if isinstance(ts, str):
+                                if time_from and ts < time_from:
+                                    continue
+                                if time_to and ts > time_to:
+                                    continue
+                        if source in ("local", "url"):
+                            if (m.get("source") or "") != source:
+                                continue
+                        if file_type:
+                            if (m.get("file_ext") or "").lower() != file_type.lower():
+                                continue
+                        if subject_ids and (m.get("subject_id") or "") not in set(subject_ids):
+                            continue
+                        # page range best-effort if chunk page present
+                        if (page_from is not None or page_to is not None) and (m.get("page") is not None):
+                            try:
+                                p = int(m.get("page"))
+                                if page_from is not None and p < page_from:
+                                    continue
+                                if page_to is not None and p > page_to:
+                                    continue
+                            except Exception:
+                                pass
+                        # build citation
+                        o["citation"] = {
+                            "title": m.get("file_name"),
+                            "url": m.get("file_url"),
+                            "page": m.get("page"),
+                            "snippet": o.get("text"),
+                        }
+                        filtered.append(o)
+                    outs = filtered
+                except Exception:
+                    # best effort; fall back to simple citation
+                    for o in outs:
+                        m = o.get("metadata") or {}
+                        o["citation"] = {
+                            "title": m.get("file_name"),
+                            "url": m.get("file_url"),
+                            "page": m.get("page"),
+                            "snippet": o.get("text"),
+                        }
+                outs = self._maybe_rerank(query, outs, top_k)
+                logger.info("[RAG] Retrieve success backend=supabase results=%d", len(outs))
+                return outs
+            except Exception as e:
+                logger.exception("[RAG] Retrieve failed (supabase) error=%s", e)
+                raise
 
     def answer(self, query: str, contexts: List[str]) -> str:
         provider = (self.settings.llm_provider or "none").lower()
@@ -328,6 +548,25 @@ class RAGEngine:
         # Return first 2 chunks as context with a brief preface
         joined = "\n\n".join(contexts[:2])
         return f"(Không có LLM cục bộ; trả lời theo ngữ cảnh gần nhất)\n\n{joined}"
+
+    def _maybe_rerank(self, query: str, outs: List[Dict[str, Any]], top_k: int) -> List[Dict[str, Any]]:
+        try:
+            if not self.settings.rerank or len(outs) <= 1:
+                return outs[:top_k]
+            if self._cross_encoder is None:
+                from sentence_transformers import CrossEncoder  # type: ignore
+                self._cross_encoder = CrossEncoder(self.settings.rerank_model)
+            pairs = [(query, o.get("text") or "") for o in outs]
+            scores = self._cross_encoder.predict(pairs)
+            scored = [(*pair, float(score)) for pair, score in zip(outs, scores)]
+            scored.sort(key=lambda x: x[-1], reverse=True)
+            reranked = [o for (o, *_s) in scored][:max(1, top_k)]
+            for o, _ in zip(reranked, range(len(reranked))):
+                o["rerank_score"] = _
+            return reranked
+        except Exception:
+            # best-effort; fallback to original order
+            return outs[:top_k]
 
 
 # Singleton engine

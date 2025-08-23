@@ -2,7 +2,7 @@ import { useState, useRef } from 'react';
 import type { Document } from '../../types';
 
 interface AddDocumentFormProps {
-  onAdd: (doc: Omit<Document, 'id'>) => void;
+  onAdd: (doc: Omit<Document, 'id'>) => Promise<void> | void;
   subjectId: string;
 }
 
@@ -13,11 +13,13 @@ const AddDocumentForm = ({ onAdd, subjectId }: AddDocumentFormProps) => {
   const [link, setLink] = useState('');
   const [tagsText, setTagsText] = useState('');
   const [file, setFile] = useState<File | null>(null);
+  const [enableRag, setEnableRag] = useState<boolean>(true);
   const [errors, setErrors] = useState<Record<string, string>>({});
+  const [submitting, setSubmitting] = useState(false);
   const [dragActive, setDragActive] = useState(false);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     const newErrors: Record<string, string> = {};
     if (!name.trim()) newErrors.name = 'Vui lòng nhập tên tài liệu';
@@ -38,6 +40,9 @@ const AddDocumentForm = ({ onAdd, subjectId }: AddDocumentFormProps) => {
     setErrors(newErrors);
     if (Object.keys(newErrors).length > 0) return;
 
+    if (submitting) return;
+    setSubmitting(true);
+
     let fileUrl = '';
     if (file) {
       fileUrl = URL.createObjectURL(file);
@@ -47,17 +52,19 @@ const AddDocumentForm = ({ onAdd, subjectId }: AddDocumentFormProps) => {
       .split(',')
       .map(t => t.trim())
       .filter(Boolean);
-    onAdd({ subjectId, name, describes, author, link, file: file || undefined, fileUrl: fileUrl || undefined, tags, favorite: false });
-
-    // Reset form
-    setName('');
-    setDescribes('');
-    setAuthor('');
-    setLink('');
-    setTagsText('');
-    setFile(null);
-    // It's good practice to revoke the object URL after it's used to avoid memory leaks
-    // But since we need it for viewing, we'll manage this elsewhere, e.g., in a useEffect cleanup in App.tsx
+    try {
+      await onAdd({ subjectId, name, describes, author, link, file: file || undefined, fileUrl: fileUrl || undefined, tags, favorite: false, enableRag });
+      // Reset form
+      setName('');
+      setDescribes('');
+      setAuthor('');
+      setLink('');
+      setTagsText('');
+      setFile(null);
+      setEnableRag(true);
+    } finally {
+      setSubmitting(false);
+    }
   };
 
   const handleFiles = (files: FileList | null) => {
@@ -102,6 +109,7 @@ const AddDocumentForm = ({ onAdd, subjectId }: AddDocumentFormProps) => {
           placeholder="Name"
           value={name}
           onChange={(e) => setName(e.target.value)}
+          disabled={submitting}
           className="w-full px-3 py-2 rounded-md bg-white/15 border border-white/15 text-white placeholder-white/60 shadow-sm
           focus:outline-none focus:ring-2 focus:ring-slate-300 focus:border-transparent transition"
         />
@@ -111,6 +119,7 @@ const AddDocumentForm = ({ onAdd, subjectId }: AddDocumentFormProps) => {
           placeholder="Description"
           value={describes}
           onChange={(e) => setDescribes(e.target.value)}
+          disabled={submitting}
           className="w-full px-3 py-2 rounded-md bg-white/15 border border-white/15 text-white placeholder-white/60 shadow-sm
           focus:outline-none focus:ring-2 focus:ring-slate-300 focus:border-transparent transition"
         />
@@ -120,6 +129,7 @@ const AddDocumentForm = ({ onAdd, subjectId }: AddDocumentFormProps) => {
           placeholder="Author"
           value={author}
           onChange={(e) => setAuthor(e.target.value)}
+          disabled={submitting}
           className="w-full px-3 py-2 rounded-md bg-white/15 border border-white/15 text-white placeholder-white/60 shadow-sm
           focus:outline-none focus:ring-2 focus:ring-slate-300 focus:border-transparent transition"
         />
@@ -129,6 +139,7 @@ const AddDocumentForm = ({ onAdd, subjectId }: AddDocumentFormProps) => {
           placeholder="External Link (optional)"
           value={link}
           onChange={(e) => setLink(e.target.value)}
+          disabled={submitting}
           className="w-full px-3 py-2 rounded-md bg-white/15 border border-white/15 text-white placeholder-white/60 shadow-sm
           focus:outline-none focus:ring-2 focus:ring-slate-300 focus:border-transparent transition"
         />
@@ -137,6 +148,7 @@ const AddDocumentForm = ({ onAdd, subjectId }: AddDocumentFormProps) => {
           placeholder="Tags (phân tách bằng dấu phẩy)"
           value={tagsText}
           onChange={(e) => setTagsText(e.target.value)}
+          disabled={submitting}
           className="w-full px-3 py-2 rounded-md bg-white/15 border border-white/15 text-white placeholder-white/60 shadow-sm
           focus:outline-none focus:ring-2 focus:ring-slate-300 focus:border-transparent transition"
         />
@@ -146,7 +158,7 @@ const AddDocumentForm = ({ onAdd, subjectId }: AddDocumentFormProps) => {
             onDrop={onDrop}
             onDragOver={onDragOver}
             onDragLeave={onDragLeave}
-            className={`rounded-md border-2 border-dashed p-4 transition ${dragActive ? 'border-white/60 bg-white/10' : 'border-white/20 bg-white/5'}`}
+            className={`rounded-md border-2 border-dashed p-4 transition ${dragActive ? 'border-white/60 bg-white/10' : 'border-white/20 bg-white/5'} ${submitting ? 'opacity-60 pointer-events-none' : ''}`}
           >
             <p className="text-sm text-white/80">Kéo-thả file vào đây, hoặc
               <button type="button" onClick={() => fileInputRef.current?.click()} className="ml-1 underline hover:text-white">chọn file</button>
@@ -162,15 +174,29 @@ const AddDocumentForm = ({ onAdd, subjectId }: AddDocumentFormProps) => {
             />
           </div>
           {errors.file && <p className="text-sm text-rose-300 mt-1">{errors.file}</p>}
+          {submitting && !errors.file && (
+            <p className="text-xs text-white/70 mt-2">Đang tải lên và xử lý tài liệu... Bạn có thể tiếp tục làm việc, việc lập chỉ mục RAG chạy nền.</p>
+          )}
+          <label className="mt-3 inline-flex items-center gap-2 text-white/90 text-sm select-none">
+            <input
+              type="checkbox"
+              className="h-4 w-4 accent-slate-300"
+              checked={enableRag}
+              disabled={submitting}
+              onChange={(e) => setEnableRag(e.target.checked)}
+            />
+            Cung cấp tài liệu này cho Chatbot (RAG)
+          </label>
         </div>
       </div>
       <button
         type="submit"
-        className="mt-6 w-full py-2 rounded-md font-semibold text-white shadow-lg
+        disabled={submitting}
+        className="mt-6 w-full py-2 rounded-md font-semibold text-white shadow-lg disabled:opacity-60 disabled:cursor-not-allowed
         bg-gradient-to-r from-slate-700 via-slate-600 to-slate-500 hover:from-slate-600 hover:via-slate-500 hover:to-slate-400
         focus:outline-none focus:ring-2 focus:ring-white/40 active:scale-[0.98] transition-all"
       >
-        Thêm tài liệu
+        {submitting ? 'Đang tải lên...' : 'Thêm tài liệu'}
       </button>
     </form>
   );

@@ -17,6 +17,7 @@ export interface Document {
   createdAt?: number; // Timestamp for sorting/filtering by date
   favorite?: boolean; // Mark as favorite
   tags?: string[]; // Simple tags for filtering/searching
+  enableRag?: boolean; // Whether to index this document into RAG
 }
 
 export interface ScheduleItem {

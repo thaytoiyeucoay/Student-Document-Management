@@ -1,5 +1,6 @@
-import { useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import type { Document } from '../../types';
+import api from '../api';
 
 interface DocumentItemProps {
   document: Document;
@@ -12,6 +13,47 @@ const DocumentItem = ({ document, onDelete, onUpdate, onPreview }: DocumentItemP
   const [isEditing, setIsEditing] = useState(false);
   const [editedDoc, setEditedDoc] = useState(document);
   const [tagsText, setTagsText] = useState((document.tags || []).join(', '));
+  const [job, setJob] = useState<{ stage: string; progress: number; message?: string } | null>(null);
+  const [jobTick, setJobTick] = useState(0);
+  const canIndexNow = useMemo(() => Boolean(document.fileUrl), [document.fileUrl]);
+
+  // Poll RAG job status if any
+  useEffect(() => {
+    let stop = false;
+    const fetchStatus = async () => {
+      try {
+        const s = await api.ragJobStatus(document.id);
+        if (!stop) setJob({ stage: s.stage, progress: s.progress, message: s.message });
+      } catch {
+        if (!stop) setJob(null);
+      }
+    };
+    fetchStatus();
+    const iv = setInterval(() => {
+      setJobTick((x) => x + 1);
+    }, 3000);
+    return () => { stop = true; clearInterval(iv); };
+  }, [document.id]);
+
+  useEffect(() => {
+    const run = async () => {
+      try {
+        const s = await api.ragJobStatus(document.id);
+        setJob({ stage: s.stage, progress: s.progress, message: s.message });
+      } catch {}
+    };
+    run();
+  }, [jobTick, document.id]);
+
+  const startIndexNow = async () => {
+    try {
+      await api.ragIndexNow(document.id);
+      // Trigger immediate refresh
+      setJobTick((x) => x + 1);
+    } catch (e) {
+      // noop
+    }
+  };
 
   const handleSave = () => {
     const tags = tagsText
@@ -94,6 +136,27 @@ const DocumentItem = ({ document, onDelete, onUpdate, onPreview }: DocumentItemP
           <h3 className="text-md font-semibold text-white/95 drop-shadow">{document.name}</h3>
           <p className="text-sm text-white/85 mt-1">{document.describes}</p>
           <p className="text-xs text-white/70 mt-2">Tác giả: {document.author}</p>
+          {/* RAG status badge */}
+          <div className="mt-2 flex items-center gap-2">
+            {job && job.stage && job.stage !== 'unknown' && (
+              <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] border ${job.stage === 'indexed' ? 'bg-emerald-500/15 border-emerald-400/40 text-emerald-200' : job.stage === 'failed' ? 'bg-rose-500/15 border-rose-400/40 text-rose-200' : 'bg-white/10 border-white/25 text-white/80'}`}>
+                {job.stage === 'indexed' ? 'Đã index' : job.stage === 'failed' ? 'Lỗi RAG' : `Đang xử lý: ${job.stage} ${Math.max(0, Math.min(100, job.progress || 0))}%`}
+              </span>
+            )}
+            {canIndexNow && (!job || (job.stage !== 'indexed' && job.stage !== 'embedding' && job.stage !== 'chunking' && job.stage !== 'storing' && job.stage !== 'upload')) && (
+              <button onClick={startIndexNow} className="inline-flex items-center gap-1.5 text-xs font-semibold text-white/90 hover:text-white transition-colors px-2 py-1 rounded-md bg-white/10 border border-white/20" title="Lập chỉ mục ngay">
+                ⚡ Index ngay
+              </button>
+            )}
+          </div>
+          {job && job.stage && ['upload', 'chunking', 'embedding', 'storing'].includes(job.stage) && (
+            <div className="mt-2">
+              <div className="w-full h-1.5 bg-white/10 rounded">
+                <div className="h-1.5 bg-emerald-400/70 rounded" style={{ width: `${Math.max(5, Math.min(100, job.progress || 0))}%` }} />
+              </div>
+              {job.message && <div className="mt-1 text-[11px] text-white/70">{job.message}</div>}
+            </div>
+          )}
           {document.tags && document.tags.length > 0 && (
             <div className="mt-2 flex flex-wrap gap-1.5">
               {document.tags.map((t, idx) => (

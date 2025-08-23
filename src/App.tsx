@@ -11,12 +11,14 @@ import type { Document, Subject } from '../types'; //kiểu dữ liệu
 import PDFViewer from './components/PDFViewer';
 import { semesters, compareSemesters } from './semesters';
 import RAGChat from './components/RAGChat';
+import SubjectKanban from './components/SubjectKanban';
+import GradesDashboard from './components/GradesDashboard';
 
 function App() {
   const [subjects, setSubjects] = useState<Subject[]>(initialSubjects); //state để lưu danh sách môn học
   const [docs, setDocs] = useState<Document[]>(initialDocuments); //state để lưu danh sách tài liệu
   const [selectedSubjectId, setSelectedSubjectId] = useState<string | null>(subjects[0]?.id || null); //state để lưu môn học được chọn
-  const [view, setView] = useState<'docs' | 'schedule'>('docs'); //state để lưu view hiện tại
+  const [view, setView] = useState<'docs' | 'schedule' | 'grades'>('docs'); //state để lưu view hiện tại
   const [search, setSearch] = useState(''); //state để lưu từ khóa tìm kiếm
   const [sortKey, setSortKey] = useState<'date' | 'name'>('date'); //state để lưu key sắp xếp
   const [sortDir, setSortDir] = useState<'desc' | 'asc'>('desc'); //state để lưu direction sắp xếp
@@ -26,7 +28,9 @@ function App() {
   const pageSize = 6; //số tài liệu hiển thị trên mỗi trang
   const searchInputRef = useRef<HTMLInputElement | null>(null); //ref để focus vào input tìm kiếm
   const mainRef = useRef<HTMLDivElement | null>(null); //ref để scroll vào main
+  const addFormRef = useRef<HTMLDivElement | null>(null); //ref đến form thêm tài liệu
   const [previewDoc, setPreviewDoc] = useState<Document | null>(null); //state để lưu tài liệu được preview
+  const [showAddForm, setShowAddForm] = useState<boolean>(false); // ẩn/hiện form thêm tài liệu
   const [currentSemester, setCurrentSemester] = useState<string>(() => {
     try {
       return localStorage.getItem('currentSemester') || '2025.1';
@@ -36,6 +40,24 @@ function App() {
   });
   const [dashboardExpanded, setDashboardExpanded] = useState<boolean>(false);
   const [showChat, setShowChat] = useState<boolean>(false);
+  // Theme state: light | dark
+  const [theme, setTheme] = useState<'light' | 'dark'>(() => {
+    try {
+      const saved = localStorage.getItem('theme');
+      if (saved === 'light' || saved === 'dark') return saved;
+      const prefersDark = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
+      return prefersDark ? 'dark' : 'light';
+    } catch {
+      return 'light';
+    }
+  });
+
+  useEffect(() => {
+    // Apply class to <html> for Tailwind dark mode
+    const el = document.documentElement;
+    if (theme === 'dark') el.classList.add('dark'); else el.classList.remove('dark');
+    try { localStorage.setItem('theme', theme); } catch {}
+  }, [theme]);
 
   useEffect(() => {
     // Xóa URL object khi component unmount
@@ -119,10 +141,24 @@ function App() {
   // Xử lý keyboard: '/' focuses search, 'n' scrolls to form
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === '/' && !('value' in (document.activeElement as any))) {
+      // Do not trigger shortcuts when user is typing or using modifier keys
+      const ae = (document.activeElement as HTMLElement | null);
+      const isTyping = !!ae && (
+        ae.tagName === 'INPUT' ||
+        ae.tagName === 'TEXTAREA' ||
+        ae.isContentEditable
+      );
+      if (e.ctrlKey || e.metaKey || e.altKey) return;
+
+      // '/' focuses search when not typing in another field
+      if (e.key === '/' && !isTyping) {
         e.preventDefault();
         searchInputRef.current?.focus();
-      } else if (e.key.toLowerCase() === 'n') {
+        return;
+      }
+
+      // 'n' scrolls to main only when not typing
+      if (e.key.toLowerCase() === 'n' && !isTyping) {
         e.preventDefault();
         mainRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
       }
@@ -155,6 +191,9 @@ function App() {
         const created = await api.createDocument(doc);
         setDocs([created, ...docs]);
         showToast('Đã thêm tài liệu');
+        setShowAddForm(true);
+        setPage(1);
+        setTimeout(() => addFormRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 50);
         return;
       } catch {
         showToast('Thêm tài liệu thất bại');
@@ -163,6 +202,9 @@ function App() {
       const newDoc = { ...doc, id: Date.now().toString(), createdAt: Date.now() } as Document;
       setDocs([newDoc, ...docs]);
       showToast('Đã thêm tài liệu');
+      setShowAddForm(true);
+      setPage(1);
+      setTimeout(() => addFormRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 50);
     }
   };
 
@@ -351,21 +393,22 @@ function App() {
 
   // Render
   return (
-    <div className="min-h-screen font-sans bg-gradient-to-br from-slate-900 via-slate-900 to-slate-800 text-slate-100">
-      <header className="sticky top-0 z-10 bg-white/5 backdrop-blur-md border-b border-white/10">
+    <div className="min-h-screen font-sans bg-gradient-to-br from-white via-white to-slate-100 text-slate-900 dark:from-slate-900 dark:via-slate-900 dark:to-slate-800 dark:text-slate-100">
+      <header className="sticky top-0 z-10 bg-white/70 backdrop-blur-md border-b border-slate-200 dark:bg-white/5 dark:border-white/10">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 space-y-3">
           {/* Hàng 1: Tiêu đề + Tab chuyển đổi giữa tài liệu và thời khóa biểu */}
           <div className="flex flex-col gap-2 md:flex-row md:items-end md:justify-between">
             <div>
-              <h1 className="text-2xl md:text-3xl font-extrabold text-white/95 tracking-tight">Quản lý tài liệu sinh viên</h1>
-              <p className="text-white/60 text-sm mt-1">Phục vụ cho sinh viên chuyên ngành Toán Tin ✨</p>
+              <h1 className="text-2xl md:text-3xl font-extrabold text-slate-900 dark:text-white/95 tracking-tight">Quản lý tài liệu sinh viên</h1>
+              <p className="text-slate-600 dark:text-white/60 text-sm mt-1">Phục vụ cho sinh viên chuyên ngành Toán Tin ✨</p>
             </div>
             <div className="flex items-center gap-2">
-              <div className="flex rounded-lg overflow-hidden bg-white/10 border border-white/15">
-                <button onClick={() => setView('docs')} className={`px-3 py-2 text-sm transition ${view === 'docs' ? 'bg-white/20 text-white' : 'text-white/80 hover:bg-white/15'}`}>Tài liệu</button>
-                <button onClick={() => setView('schedule')} className={`px-3 py-2 text-sm transition ${view === 'schedule' ? 'bg-white/20 text-white' : 'text-white/80 hover:bg-white/15'}`}>Thời khóa biểu</button>
+              <div className="flex rounded-lg overflow-hidden bg-white border border-slate-200 text-slate-700 dark:bg-white/10 dark:border-white/15">
+                <button onClick={() => setView('docs')} className={`px-3 py-2 text-sm transition ${view === 'docs' ? 'bg-slate-100 text-slate-900 dark:bg-white/20 dark:text-white' : 'hover:bg-slate-50 dark:text-white/80 dark:hover:bg-white/15'}`}>Tài liệu</button>
+                <button onClick={() => setView('schedule')} className={`px-3 py-2 text-sm transition ${view === 'schedule' ? 'bg-slate-100 text-slate-900 dark:bg-white/20 dark:text-white' : 'hover:bg-slate-50 dark:text-white/80 dark:hover:bg-white/15'}`}>Thời khóa biểu</button>
+                <button onClick={() => setView('grades')} className={`px-3 py-2 text-sm transition ${view === 'grades' ? 'bg-slate-100 text-slate-900 dark:bg-white/20 dark:text-white' : 'hover:bg-slate-50 dark:text-white/80 dark:hover:bg-white/15'}`}>Điểm</button>
               </div>
-              <button onClick={() => setShowChat(true)} className="px-3 py-2 text-sm rounded-md bg-emerald-500/20 border border-emerald-400/40 text-emerald-100 hover:bg-emerald-500/25">💬 Chatbot RAG</button>
+              <button onClick={() => setTheme(theme === 'dark' ? 'light' : 'dark')} title="Đổi giao diện" aria-label="Đổi giao diện" className="px-3 py-2 text-sm rounded-md border border-slate-200 bg-white hover:bg-slate-50 text-slate-700 dark:bg-white/10 dark:border-white/15 dark:text-white/90 dark:hover:bg-white/15">{theme === 'dark' ? '☀️' : '🌙'}</button>
             </div>
           </div>
 
@@ -379,7 +422,7 @@ function App() {
               value={search}
               onChange={(e) => setSearch(e.target.value)}
               placeholder="Tìm kiếm (/ để focus)"
-              className="w-full pl-9 pr-3 py-2.5 rounded-md bg-white/10 border border-white/15 text-white placeholder-white/60 shadow-sm focus:outline-none focus:ring-2 focus:ring-slate-300 focus:border-transparent"
+              className="w-full pl-9 pr-3 py-2.5 rounded-md bg-white border border-slate-200 text-slate-900 placeholder-slate-500 shadow-sm focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-transparent dark:bg-white/10 dark:border-white/15 dark:text-white dark:placeholder-white/60"
             />
           </div>
 
@@ -387,7 +430,7 @@ function App() {
           <div className="flex flex-wrap items-center gap-2">
             <button
               onClick={() => setShowFavOnly(v => !v)}
-              className={`px-3 py-1.5 rounded-md text-sm border transition ${showFavOnly ? 'bg-amber-500/20 text-amber-100 border-amber-400/40' : 'bg-white/10 text-white/80 border-white/15 hover:bg-white/15'}`}
+              className={`px-3 py-1.5 rounded-md text-sm border transition ${showFavOnly ? 'bg-amber-50 text-amber-700 border-amber-200 dark:bg-amber-500/20 dark:text-amber-100 dark:border-amber-400/40' : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-50 dark:bg-white/10 dark:text-white/80 dark:border-white/15 dark:hover:bg-white/15'}`}
               title="Chỉ hiện yêu thích"
             >
               ★ Yêu thích
@@ -396,7 +439,7 @@ function App() {
               <select
                 value={sortKey}
                 onChange={(e) => setSortKey(e.target.value as 'date' | 'name')}
-                className="px-3 py-1.5 rounded-md bg-white/10 border border-white/15 text-white text-sm focus:outline-none focus:ring-2 focus:ring-slate-300"
+                className="px-3 py-1.5 rounded-md bg-white border border-slate-200 text-slate-700 text-sm focus:outline-none focus:ring-2 focus:ring-primary-500 dark:bg-white/10 dark:border-white/15 dark:text-white"
                 title="Sắp xếp theo"
               >
                 <option value="date">Ngày</option>
@@ -405,7 +448,7 @@ function App() {
               <select
                 value={sortDir}
                 onChange={(e) => setSortDir(e.target.value as 'asc' | 'desc')}
-                className="px-3 py-1.5 rounded-md bg-white/10 border border-white/15 text-white text-sm focus:outline-none focus:ring-2 focus:ring-slate-300"
+                className="px-3 py-1.5 rounded-md bg-white border border-slate-200 text-slate-700 text-sm focus:outline-none focus:ring-2 focus:ring-primary-500 dark:bg-white/10 dark:border-white/15 dark:text-white"
                 title="Thứ tự"
               >
                 <option value="desc">Giảm dần</option>
@@ -416,7 +459,7 @@ function App() {
               <select
                 value={currentSemester}
                 onChange={(e) => setCurrentSemester(e.target.value)}
-                className="px-3 py-1.5 rounded-md bg-white/10 border border-white/15 text-white text-sm focus:outline-none focus:ring-2 focus:ring-slate-300"
+                className="px-3 py-1.5 rounded-md bg-white border border-slate-200 text-slate-700 text-sm focus:outline-none focus:ring-2 focus:ring-primary-500 dark:bg-white/10 dark:border-white/15 dark:text-white"
                 title="Kỳ đang học"
               >
                 {semesters.map(s => (
@@ -425,8 +468,8 @@ function App() {
               </select>
             </div>
             <details className="relative">
-              <summary className="list-none px-3 py-1.5 rounded-md bg-white/10 border border-white/15 text-white/90 text-sm hover:bg-white/15 cursor-pointer select-none">Tùy chọn ▾</summary>
-              <div className="absolute right-0 mt-2 w-56 rounded-md border border-white/15 bg-slate-900/95 shadow-lg p-2 z-20">
+              <summary className="list-none px-3 py-1.5 rounded-md bg-white border border-slate-200 text-slate-700 text-sm hover:bg-slate-50 cursor-pointer select-none dark:bg-white/10 dark:border-white/15 dark:text-white/90 dark:hover:bg-white/15">Tùy chọn ▾</summary>
+              <div className="absolute right-0 mt-2 w-56 rounded-md border border-slate-200 bg-white shadow-lg p-2 z-20 dark:border-white/15 dark:bg-slate-900/95">
                 <button
                   onClick={() => {
                     const payload = {
@@ -442,9 +485,9 @@ function App() {
                     URL.revokeObjectURL(url);
                     showToast('Đã export dữ liệu');
                   }}
-                  className="w-full text-left px-3 py-2 rounded-md text-sm bg-white/5 hover:bg-white/10"
+                  className="w-full text-left px-3 py-2 rounded-md text-sm bg-slate-50 hover:bg-slate-100 dark:bg-white/5 dark:hover:bg-white/10"
                 >Export dữ liệu</button>
-                <label className="block w-full text-left px-3 py-2 rounded-md text-sm bg-white/5 hover:bg-white/10 cursor-pointer mt-1">
+                <label className="block w-full text-left px-3 py-2 rounded-md text-sm bg-slate-50 hover:bg-slate-100 cursor-pointer mt-1 dark:bg-white/5 dark:hover:bg-white/10">
                   Import dữ liệu
                   <input type="file" accept="application/json" className="hidden" onChange={async (e) => {
                     const file = e.target.files?.[0];
@@ -543,19 +586,64 @@ function App() {
             />
           </aside>
           <main ref={mainRef} className="md:col-span-3">
-            {selectedSubjectId && <AddDocumentForm onAdd={handleDocAdd} subjectId={selectedSubjectId} />}
+            {/* Danh sách tài liệu môn học trước */}
             <DocumentList documents={pagedDocs} onDelete={handleDocDelete} onUpdate={handleDocUpdate} onPreview={setPreviewDoc} />
             {/* Pagination */}
-            <div className="mt-4 flex items-center justify-end gap-2 text-white/80">
-              <button disabled={page <= 1} onClick={() => setPage(p => Math.max(1, p - 1))} className="px-3 py-1 rounded-md bg-white/10 border border-white/20 disabled:opacity-40">Trước</button>
+            <div className="mt-4 flex items-center justify-end gap-2 text-slate-700 dark:text-white/80">
+              <button disabled={page <= 1} onClick={() => setPage(p => Math.max(1, p - 1))} className="px-3 py-1 rounded-md bg-white border border-slate-200 disabled:opacity-40 disabled:cursor-not-allowed dark:bg-white/10 dark:border-white/20">Trước</button>
               <span className="text-sm">Trang {page}/{totalPages}</span>
-              <button disabled={page >= totalPages} onClick={() => setPage(p => Math.min(totalPages, p + 1))} className="px-3 py-1 rounded-md bg-white/10 border border-white/20 disabled:opacity-40">Sau</button>
+              <button disabled={page >= totalPages} onClick={() => setPage(p => Math.min(totalPages, p + 1))} className="px-3 py-1 rounded-md bg-white border border-slate-200 disabled:opacity-40 disabled:cursor-not-allowed dark:bg-white/10 dark:border-white/20">Sau</button>
             </div>
+            {/* Gập/mở form thêm tài liệu */}
+            {selectedSubjectId && (
+              <div className="mt-6" ref={addFormRef}>
+                <button
+                  onClick={() => {
+                    setShowAddForm(v => !v);
+                    setTimeout(() => addFormRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 0);
+                  }}
+                  className="px-3 py-2 rounded-md text-sm bg-primary-600 text-white hover:bg-primary-700"
+                >{showAddForm ? '− Thu gọn' : '+ Thêm tài liệu mới'}</button>
+                {showAddForm && (
+                  <div className="mt-3">
+                    <h3 className="mb-2 text-sm font-semibold text-white/85">Thêm tài liệu mới</h3>
+                    <AddDocumentForm onAdd={handleDocAdd} subjectId={selectedSubjectId} />
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* Subject Kanban Board sau tài liệu */}
+            {selectedSubjectId && (() => {
+              const subj = subjects.find(s => s.id === selectedSubjectId);
+              if (!subj) return null;
+              return (
+                <div className="mt-8">
+                  <h3 className="mb-2 text-sm font-semibold text-white/85">Bảng Kanban học tập</h3>
+                  <SubjectKanban subject={subj} docs={docs.filter(d => d.subjectId === selectedSubjectId)} />
+                </div>
+              );
+            })()}
           </main>
+        </div>
+      ) : view === 'schedule' ? (
+        <div className="max-w-7xl mx-auto py-8 px-4 sm:px-6 lg:px-8">
+          <ScheduleWeek subjects={subjects} onToast={showToast} />
         </div>
       ) : (
         <div className="max-w-7xl mx-auto py-8 px-4 sm:px-6 lg:px-8">
-          <ScheduleWeek subjects={subjects} onToast={showToast} />
+          <GradesDashboard
+            subjects={subjects}
+            onOpenDocs={(subjectName) => {
+              const target = subjects.find(s => s.name.trim().toLowerCase() === subjectName.trim().toLowerCase());
+              if (target) {
+                setSelectedSubjectId(target.id);
+              }
+              setSearch('');
+              setView('docs');
+              setPage(1);
+            }}
+          />
         </div>
       )}
       {/* Contact Footer */}

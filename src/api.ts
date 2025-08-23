@@ -60,9 +60,13 @@ function mapSubjectFromApi(s: any): Subject {
 
 export const api = {
   hasBackend,
-  async ragQuery(params: { query: string; subjectId?: string; topK?: number }): Promise<{ answer: string; contexts: Array<string | { title?: string; url?: string; page?: number | string; snippet?: string }> }> {
+  async ragQuery(params: { query: string; subjectId?: string; topK?: number; tags?: string[]; author?: string; timeFrom?: string; timeTo?: string }): Promise<{ answer: string; contexts: Array<string | { title?: string; url?: string; page?: number | string; snippet?: string }> }> {
     const body: any = { query: params.query, top_k: params.topK ?? 5 };
     if (params.subjectId) body.subject_id = params.subjectId;
+    if (params.tags && params.tags.length) body.tags = params.tags;
+    if (params.author) body.author = params.author;
+    if (params.timeFrom) body.time_from = params.timeFrom;
+    if (params.timeTo) body.time_to = params.timeTo;
     const data = await request<any>(`/rag/query`, { method: 'POST', body: JSON.stringify(body) });
     const ctx = Array.isArray(data.contexts) ? data.contexts : [];
     return { answer: data.answer as string, contexts: ctx };
@@ -170,6 +174,8 @@ export const api = {
     if (doc.file) {
       const form = new FormData();
       form.append('file', doc.file);
+      // Pass user's preference to index into RAG
+      form.append('enable_rag', String(Boolean((doc as any).enableRag)));
       const up = await request<any>(`/documents/${created.id}/upload`, {
         method: 'POST',
         body: form,
@@ -187,6 +193,16 @@ export const api = {
   },
   async deleteDocument(id: string): Promise<void> {
     await request(`/documents/${id}`, { method: 'DELETE' });
+  },
+
+  // RAG jobs
+  async ragJobStatus(docId: string): Promise<{ doc_id: string; stage: string; progress: number; message?: string; updated_at?: number }>
+  {
+    return await request(`/rag/jobs/${encodeURIComponent(docId)}`);
+  },
+  async ragIndexNow(docId: string): Promise<{ ok: boolean; doc_id: string }>
+  {
+    return await request(`/rag/index/${encodeURIComponent(docId)}`, { method: 'POST' });
   },
 
   // Annotations

@@ -1,5 +1,5 @@
 from typing import List, Optional
-from fastapi import APIRouter, Depends, UploadFile, File, HTTPException, Form
+from fastapi import APIRouter, Depends, UploadFile, File, HTTPException, Form, BackgroundTasks
 import logging
 from ..schemas import DocumentCreate, DocumentUpdate, DocumentOut
 from ..supabase_client import get_supabase
@@ -8,9 +8,10 @@ from ..config import get_settings
 import uuid
 import json
 from ..rag import get_engine
+from ..rag_jobs import job_store
 
 router = APIRouter()
-logger = logging.getLogger("rag")
+logger = logging.getLogger(__name__)
 
 
 def _table_name() -> str:
@@ -70,7 +71,7 @@ async def delete_document(doc_id: str, user=Depends(get_current_user)):
 
 
 @router.post("/documents/{doc_id}/upload", response_model=DocumentOut)
-async def upload_document_file(doc_id: str, file: UploadFile = File(...), user=Depends(get_current_user)):
+async def upload_document_file(doc_id: str, file: UploadFile = File(...), enable_rag: bool = Form(False), background_tasks: BackgroundTasks = None, user=Depends(get_current_user)):
     sb = get_supabase()
     settings = get_settings()
 
@@ -135,22 +136,49 @@ async def upload_document_file(doc_id: str, file: UploadFile = File(...), user=D
         raise HTTPException(status_code=500, detail="Failed to update document with file info")
     saved_doc = updated.data[0]
 
-    # Trigger RAG indexing (best-effort)
+    # Trigger RAG indexing in background if enabled (best-effort, non-blocking)
     try:
-        engine = get_engine()
-        subject_id = str(saved_doc.get("subject_id")) if saved_doc.get("subject_id") is not None else None
-        user_id = (user or {}).get("sub") if isinstance(user, dict) else None
-        filename = file.filename or path.split("/")[-1]
-        res = engine.index_document(
-            document_id=str(doc_id),
-            subject_id=subject_id,
-            user_id=user_id,
-            file_bytes=content,
-            file_name=filename,
-        )
-        logger.info("RAG indexed doc_id=%s chunks=%s", doc_id, (res or {}).get("chunks"))
+        if enable_rag:
+            # init job status
+            try:
+                job_store.start(str(doc_id))
+                job_store.update(str(doc_id), stage="upload", progress=5, message="Đang tải lên")
+            except Exception:
+                pass
+            engine = get_engine()
+            subject_id = str(saved_doc.get("subject_id")) if saved_doc.get("subject_id") is not None else None
+            user_id = (user or {}).get("sub") if isinstance(user, dict) else None
+            filename = file.filename or path.split("/")[-1]
+
+            def _do_index():
+                try:
+                    extra_metadata = {
+                        "author": saved_doc.get("author"),
+                        "tags": saved_doc.get("tags") or [],
+                        "created_at": saved_doc.get("created_at"),
+                        "file_url": saved_doc.get("file_url"),
+                    }
+                    res = engine.index_document(
+                        document_id=str(doc_id),
+                        subject_id=subject_id,
+                        user_id=user_id,
+                        file_bytes=content,
+                        file_name=filename,
+                        extra_metadata=extra_metadata,
+                    )
+                    logger.info("[RAG] Index scheduled and completed doc_id=%s chunks=%s", doc_id, (res or {}).get("chunks"))
+                except Exception as e:
+                    logger.exception("[RAG] Index failed for doc_id=%s: %s", doc_id, e)
+
+            if background_tasks is not None:
+                background_tasks.add_task(_do_index)
+                logger.info("[RAG] Index scheduled (background) doc_id=%s enable_rag=%s", doc_id, enable_rag)
+            else:
+                # Fallback if BackgroundTasks not available for some reason
+                _do_index()
+        else:
+            logger.info("[RAG] Index skipped doc_id=%s enable_rag=%s", doc_id, enable_rag)
     except Exception as e:
-        # Log error but do not block the upload flow
-        logger.exception("RAG indexing failed for doc_id=%s: %s", doc_id, e)
+        logger.exception("Failed to schedule/skip RAG indexing for doc_id=%s: %s", doc_id, e)
 
     return saved_doc

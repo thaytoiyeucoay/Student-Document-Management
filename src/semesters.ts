@@ -1,5 +1,5 @@
-// Predefined academic semesters: 2022.1–2026.2
-export const semesters: string[] = Array.from({ length: 5 }, (_, i) => 2022 + i)
+// Predefined academic semesters: 2022.1–2025.2
+export const semesters: string[] = [2022, 2023, 2024, 2025]
   .flatMap((y) => [`${y}.1`, `${y}.2`]);
 
 export type Semester = (typeof semesters)[number];
