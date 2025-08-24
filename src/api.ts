@@ -60,6 +60,61 @@ function mapSubjectFromApi(s: any): Subject {
 
 export const api = {
   hasBackend,
+  // AI helpers
+  async aiTranslate(payload: { text: string; target_lang?: string; return_format?: 'text' | 'markdown' }): Promise<{ translated: string; model: string }>
+  {
+    return await request(`/ai/translate`, {
+      method: 'POST',
+      body: JSON.stringify({
+        text: payload.text,
+        target_lang: payload.target_lang ?? 'vi',
+        return_format: payload.return_format ?? 'markdown',
+      }),
+    });
+  },
+  async aiOcrTranslate(payload: { blob: Blob; filename: string; target_lang?: string; mode?: 'ocr' | 'translate' | 'both'; return_format?: 'text' | 'markdown' }): Promise<{ ocr_text?: string; translated?: string; model: string }>
+  {
+    const form = new FormData();
+    form.append('file', new File([payload.blob], payload.filename));
+    form.append('target_lang', payload.target_lang ?? 'vi');
+    form.append('mode', payload.mode ?? 'both');
+    form.append('return_format', payload.return_format ?? 'markdown');
+    return await request(`/ai/ocr_translate`, { method: 'POST', body: form });
+  },
+  async aiImagesToPdf(files: File[]): Promise<Blob> {
+    if (!hasBackend()) throw new Error('Backend not configured');
+    if (!Array.isArray(files) || files.length === 0) throw new Error('Chọn ít nhất 1 ảnh');
+    const form = new FormData();
+    for (const f of files) form.append('files', f);
+    const res = await fetch(`${apiBase}/ai/images_to_pdf`, { method: 'POST', body: form });
+    if (!res.ok) {
+      const txt = await res.text().catch(() => '');
+      throw new Error(`API ${res.status}: ${txt}`);
+    }
+    return await res.blob();
+  },
+  async aiFreeOcr(
+    files: File[],
+    lang: string = 'vie',
+    opts?: { psm?: number; oem?: number; preprocess?: 'none' | 'binary' | 'adaptive' | 'enhance'; upscale?: number }
+  ): Promise<{ ok: boolean; lang: string; pages: { filename: string; text: string; chars: number }[]; text: string; engine: string }>
+  {
+    if (!hasBackend()) throw new Error('Backend not configured');
+    if (!Array.isArray(files) || files.length === 0) throw new Error('Chọn ít nhất 1 ảnh');
+    const form = new FormData();
+    for (const f of files) form.append('files', f);
+    form.append('lang', lang);
+    if (opts?.psm != null) form.append('psm', String(opts.psm));
+    if (opts?.oem != null) form.append('oem', String(opts.oem));
+    if (opts?.preprocess) form.append('preprocess', opts.preprocess);
+    if (opts?.upscale != null) form.append('upscale', String(opts.upscale));
+    const res = await fetch(`${apiBase}/ai/free_ocr`, { method: 'POST', body: form });
+    if (!res.ok) {
+      const txt = await res.text().catch(() => '');
+      throw new Error(`API ${res.status}: ${txt}`);
+    }
+    return await res.json();
+  },
   async ragQuery(params: { query: string; subjectId?: string; topK?: number; tags?: string[]; author?: string; timeFrom?: string; timeTo?: string }): Promise<{ answer: string; contexts: Array<string | { title?: string; url?: string; page?: number | string; snippet?: string }> }> {
     const body: any = { query: params.query, top_k: params.topK ?? 5 };
     if (params.subjectId) body.subject_id = params.subjectId;

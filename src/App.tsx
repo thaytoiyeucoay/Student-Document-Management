@@ -13,6 +13,8 @@ import { semesters, compareSemesters } from './semesters';
 import RAGChat from './components/RAGChat';
 import SubjectKanban from './components/SubjectKanban';
 import GradesDashboard from './components/GradesDashboard';
+import ImagesToPdf from './components/ImagesToPdf';
+import FreeOcr from './components/FreeOcr';
 
 function App() {
   const [subjects, setSubjects] = useState<Subject[]>(initialSubjects); //state để lưu danh sách môn học
@@ -38,6 +40,8 @@ function App() {
       return '2025.1';
     }
   });
+  const [showImagesToPdf, setShowImagesToPdf] = useState<boolean>(false);
+  const [showFreeOcr, setShowFreeOcr] = useState<boolean>(false);
   const [dashboardExpanded, setDashboardExpanded] = useState<boolean>(false);
   const [showChat, setShowChat] = useState<boolean>(false);
   // Theme state: light | dark
@@ -511,6 +515,16 @@ function App() {
                 </label>
               </div>
             </details>
+            <button
+              onClick={() => setShowImagesToPdf(true)}
+              className="px-3 py-1.5 rounded-md text-sm bg-primary-600 text-white hover:bg-primary-700"
+              title="Gộp ảnh thành PDF"
+            >Ảnh → PDF</button>
+            <button
+              onClick={() => setShowFreeOcr(true)}
+              className="px-3 py-1.5 rounded-md text-sm bg-primary-600 text-white hover:bg-primary-700"
+              title="OCR miễn phí (Tesseract)"
+            >OCR miễn phí</button>
           </div>
           
           {/* Hàng 4: Dashboard tổng quan */}
@@ -662,6 +676,26 @@ function App() {
           <div className="text-sm text-white/60 md:text-right">© {new Date().getFullYear()} Student Docs. All rights reserved.</div>
         </div>
       </footer>
+
+      {/* Modal: Ảnh -> PDF */}
+      {showImagesToPdf && (
+        <div className="fixed inset-0 z-50">
+          <div className="absolute inset-0 bg-black/60" onClick={() => setShowImagesToPdf(false)} />
+          <div className="absolute inset-0 p-4 flex items-center justify-center">
+            <ImagesToPdf onClose={() => setShowImagesToPdf(false)} />
+          </div>
+        </div>
+      )}
+
+      {/* Modal: OCR miễn phí */}
+      {showFreeOcr && (
+        <div className="fixed inset-0 z-50">
+          <div className="absolute inset-0 bg-black/60" onClick={() => setShowFreeOcr(false)} />
+          <div className="absolute inset-0 p-4 flex items-center justify-center">
+            <FreeOcr onClose={() => setShowFreeOcr(false)} />
+          </div>
+        </div>
+      )}
 
       {/* Modal xem tài liệu - đã được cải tiến */}
       {previewDoc && (

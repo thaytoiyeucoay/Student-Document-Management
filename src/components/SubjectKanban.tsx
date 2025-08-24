@@ -346,46 +346,65 @@ const SubjectKanban: React.FC<{ subject: Subject; docs?: Document[] }>= ({ subje
 
   return (
     <div className="space-y-3">
-      <div className="flex items-end gap-2">
-        <div className="flex-1 min-w-0">
-          <label className="block text-xs text-white/70 mb-1">Thêm công việc cho môn: <span className="font-semibold text-white/90">{subject.name}</span></label>
-          <input
-            value={newTitle}
-            onChange={(e) => setNewTitle(e.target.value)}
-            placeholder="VD: Ôn chương 1, làm bài tập 1-5"
-            className="w-full px-3 py-2 rounded-md bg-white border border-slate-200 text-sm dark:bg-white/10 dark:border-white/15"
-          />
-          <textarea
-            value={newNote}
-            onChange={(e) => setNewNote(e.target.value)}
-            placeholder="Ghi chú (tùy chọn)"
-            rows={2}
-            className="mt-2 w-full px-3 py-2 rounded-md bg-white border border-slate-200 text-xs dark:bg-white/10 dark:border-white/15"
-          />
+      <div className="rounded-xl border border-white/15 bg-white/5 p-3">
+        <div className="mb-2 text-xs text-white/70">
+          Thêm công việc cho môn: <span className="font-semibold text-white/90">{subject.name}</span>
         </div>
-        <div>
-          <label className="block text-xs text-white/70 mb-1">Deadline</label>
-          <input
-            type="date"
-            value={newDue}
-            onChange={(e) => setNewDue(e.target.value)}
-            className="px-3 py-2 rounded-md bg-white border border-slate-200 text-sm dark:bg-white/10 dark:border-white/15"
-          />
-        </div>
-        <div>
-          <label className="block text-xs text-white/70 mb-1">Liên kết tài liệu</label>
-          <select
-            value={newDocId}
-            onChange={(e) => setNewDocId(e.target.value)}
-            className="px-3 py-2 rounded-md bg-white border border-slate-200 text-sm dark:bg-white/10 dark:border-white/15"
-          >
-            <option value="">Không liên kết</option>
-            {docs.map(d => (
-              <option key={d.id} value={d.id}>{d.name}</option>
-            ))}
-          </select>
-        </div>
-        <button onClick={addTask} className="px-3 py-2 rounded-md bg-emerald-600 text-white text-sm">Thêm</button>
+        <form
+          onSubmit={(e) => { e.preventDefault(); addTask(); }}
+          className="grid grid-cols-1 md:grid-cols-4 gap-3"
+        >
+          <div className="md:col-span-2">
+            <label className="block text-xs text-white/70 mb-1">Tiêu đề</label>
+            <input
+              value={newTitle}
+              onChange={(e) => setNewTitle(e.target.value)}
+              placeholder="VD: Ôn chương 1, làm bài tập 1-5"
+              className="w-full px-3 py-2 rounded-md bg-white border border-slate-200 text-sm dark:bg-white/10 dark:border-white/15"
+            />
+          </div>
+          <div>
+            <label className="block text-xs text-white/70 mb-1">Deadline</label>
+            <input
+              type="date"
+              value={newDue}
+              onChange={(e) => setNewDue(e.target.value)}
+              className="w-full px-3 py-2 rounded-md bg-white border border-slate-200 text-sm dark:bg-white/10 dark:border-white/15"
+            />
+          </div>
+          <div>
+            <label className="block text-xs text-white/70 mb-1">Liên kết tài liệu</label>
+            <select
+              value={newDocId}
+              onChange={(e) => setNewDocId(e.target.value)}
+              className="w-full px-3 py-2 rounded-md bg-white border border-slate-200 text-sm dark:bg-white/10 dark:border-white/15"
+            >
+              <option value="">Không liên kết</option>
+              {docs.map(d => (
+                <option key={d.id} value={d.id}>{d.name}</option>
+              ))}
+            </select>
+          </div>
+          <div className="md:col-span-4">
+            <label className="block text-xs text-white/70 mb-1">Ghi chú</label>
+            <textarea
+              value={newNote}
+              onChange={(e) => setNewNote(e.target.value)}
+              placeholder="Ghi chú (tùy chọn)"
+              rows={2}
+              className="w-full px-3 py-2 rounded-md bg-white border border-slate-200 text-xs dark:bg-white/10 dark:border-white/15"
+            />
+          </div>
+          <div className="md:col-span-4 flex items-center justify-end">
+            <button
+              type="submit"
+              disabled={!newTitle.trim()}
+              className="px-4 py-2 rounded-md bg-emerald-600 text-white text-sm disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              Thêm
+            </button>
+          </div>
+        </form>
       </div>
       <div className="flex items-center gap-2">
         <label className="text-xs text-white/70">Lọc deadline:</label>

@@ -17,6 +17,15 @@ class Settings(BaseSettings):
     supabase_service_role_key: str
     supabase_storage_bucket: str = Field(default="documents")
 
+    # AI / OpenAI
+    openai_api_key: str | None = Field(default=None, validation_alias="OPENAI_API_KEY")
+    openai_base_url: AnyHttpUrl | None = Field(default=None, validation_alias="OPENAI_BASE_URL")
+
+    # OCR / Tesseract: optional explicit path to tesseract executable (Windows)
+    tesseract_cmd: str | None = Field(default=None, validation_alias="TESSERACT_CMD")
+    # OCR / Tesseract: optional tessdata directory for language models (e.g., tessdata_best)
+    tessdata_dir: str | None = Field(default=None, validation_alias="TESSDATA_DIR")
+
     # Pydantic v2 config: load env from backend/.env (not project root .env)
     _env_file = str((Path(__file__).resolve().parent.parent / ".env").resolve())
     model_config = SettingsConfigDict(env_file=_env_file, case_sensitive=False, extra="ignore")

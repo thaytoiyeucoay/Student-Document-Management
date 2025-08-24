@@ -130,9 +130,26 @@ const GradeForm: React.FC<{ onSubmit: (c: Omit<CourseGrade, 'id'>) => void; init
 const GradesDashboard: React.FC<{ subjects?: Subject[]; onOpenDocs?: (subjectName: string) => void }> = ({ subjects = [], onOpenDocs }) => {
   const { grades, setGrades } = useLocalGrades();
 
-  // Filters
-  const [filterYear, setFilterYear] = useState<'all' | 2022 | 2023 | 2024 | 2025>('all');
-  const [filterTerm, setFilterTerm] = useState<'all' | 1 | 2>('all');
+  // Filters (dynamic options from data)
+  const [filterYear, setFilterYear] = useState<'all' | number>('all');
+  const [filterTerm, setFilterTerm] = useState<'all' | number>('all');
+  const availableYears = useMemo(() => {
+    const ys = new Set<number>();
+    for (const g of grades) {
+      const p = parseSemester(g.semester);
+      if (p) ys.add(p.year);
+    }
+    return Array.from(ys).sort((a, b) => a - b);
+  }, [grades]);
+  const availableTerms = useMemo(() => {
+    const ts = new Set<number>();
+    for (const g of grades) {
+      const p = parseSemester(g.semester);
+      if (p) ts.add(p.term);
+    }
+    const arr = Array.from(ts).sort((a, b) => a - b);
+    return arr.length ? arr : [1, 2];
+  }, [grades]);
 
   // Sort for display
   const gradesSorted = useMemo(() => {
@@ -193,18 +210,21 @@ const GradesDashboard: React.FC<{ subjects?: Subject[]; onOpenDocs?: (subjectNam
   );
   const BarChart: React.FC<{ data: { label: string; value: number }[]; max?: number }>
     = ({ data, max = 4 }) => {
-    const w = 560, h = 160, pad = 24;
-    const bw = Math.max(6, (w - pad * 2) / Math.max(1, data.length) - 8);
+    const h = 160, pad = 24;
+    const targetBw = 44; // desired bar width for readability
+    const gap = 8;
+    const w = Math.max(560, pad * 2 + Math.max(1, data.length) * (targetBw + gap));
+    const bw = Math.max(6, targetBw);
     const [tt, setTt] = useState<{ show: boolean; x: number; y: number; text: string }>({ show: false, x: 0, y: 0, text: '' });
     const wrapRef = useRef<HTMLDivElement | null>(null);
     return (
-      <div ref={wrapRef} className="relative">
-        <svg width={w} height={h} className="w-full h-40"
+      <div ref={wrapRef} className="relative overflow-x-auto">
+        <svg width={w} height={h} className="h-40"
           onMouseLeave={() => setTt(s => ({ ...s, show: false }))}
         >
           <line x1={pad} y1={h - pad} x2={w - pad} y2={h - pad} stroke="currentColor" className="text-white/20" />
           {data.map((d, i) => {
-            const x = pad + i * (bw + 8);
+            const x = pad + i * (bw + gap);
             const barH = (d.value / max) * (h - pad * 2);
             const y = h - pad - barH;
             return (
@@ -224,7 +244,9 @@ const GradesDashboard: React.FC<{ subjects?: Subject[]; onOpenDocs?: (subjectNam
   };
   const LineChart: React.FC<{ data: { label: string; value: number }[]; max?: number }>
     = ({ data, max = 4 }) => {
-    const w = 560, h = 160, pad = 24;
+    const h = 160, pad = 24;
+    const targetStep = 64; // desired pixel per point
+    const w = Math.max(560, pad * 2 + Math.max(1, data.length - 1) * targetStep);
     const [tt, setTt] = useState<{ show: boolean; x: number; y: number; text: string }>({ show: false, x: 0, y: 0, text: '' });
     const points = data.map((d, i) => {
       const x = pad + (i * (w - pad * 2)) / Math.max(1, data.length - 1);
@@ -233,8 +255,8 @@ const GradesDashboard: React.FC<{ subjects?: Subject[]; onOpenDocs?: (subjectNam
     });
     const path = points.map((p, i) => (i === 0 ? `M ${p[0]},${p[1]}` : `L ${p[0]},${p[1]}`)).join(' ');
     return (
-      <div className="relative">
-        <svg width={w} height={h} className="w-full h-40"
+      <div className="relative overflow-x-auto">
+        <svg width={w} height={h} className="h-40"
           onMouseLeave={() => setTt(s => ({ ...s, show: false }))}
         >
           <line x1={pad} y1={h - pad} x2={w - pad} y2={h - pad} stroke="currentColor" className="text-white/20" />
@@ -267,15 +289,14 @@ const GradesDashboard: React.FC<{ subjects?: Subject[]; onOpenDocs?: (subjectNam
       {/* Filters */}
       <div className="flex flex-wrap items-center gap-2">
         <label className="text-white/80 text-sm">Năm:</label>
-        <select value={String(filterYear)} onChange={(e) => setFilterYear((e.target.value === 'all' ? 'all' : Number(e.target.value)) as any)} className="px-3 py-2 rounded-md bg-white border border-slate-200 text-sm dark:bg-white/10 dark:border-white/15">
+        <select value={String(filterYear)} onChange={(e) => setFilterYear((e.target.value === 'all' ? 'all' : Number(e.target.value)))} className="px-3 py-2 rounded-md bg-white border border-slate-200 text-sm dark:bg-white/10 dark:border-white/15">
           <option value="all">Tất cả</option>
-          {[2022, 2023, 2024, 2025].map(y => <option key={y} value={y}>{y}</option>)}
+          {availableYears.map(y => <option key={y} value={y}>{y}</option>)}
         </select>
         <label className="text-white/80 text-sm">Kỳ:</label>
-        <select value={String(filterTerm)} onChange={(e) => setFilterTerm((e.target.value === 'all' ? 'all' : Number(e.target.value)) as any)} className="px-3 py-2 rounded-md bg-white border border-slate-200 text-sm dark:bg-white/10 dark:border-white/15">
+        <select value={String(filterTerm)} onChange={(e) => setFilterTerm((e.target.value === 'all' ? 'all' : Number(e.target.value)))} className="px-3 py-2 rounded-md bg-white border border-slate-200 text-sm dark:bg-white/10 dark:border-white/15">
           <option value="all">Tất cả</option>
-          <option value="1">1</option>
-          <option value="2">2</option>
+          {availableTerms.map(t => <option key={t} value={t}>{t}</option>)}
         </select>
       </div>
 
