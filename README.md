@@ -3,8 +3,6 @@
 Frontend: React + TypeScript + Vite (TailwindCSS).
 Backend: FastAPI, tích hợp Supabase (Postgres + Storage, pgvector) và RAG dựa trên LLM API (OpenAI/Gemini).
 
-Lưu ý: Tính năng "Bản đồ khái niệm (Concept Graph)" đã được gỡ bỏ.
-
 ## Kiến trúc
 - Frontend: thư mục `src/` (Vite React TS).
 - Backend: thư mục `backend/` (FastAPI, tài liệu ở `backend/README.md`).
