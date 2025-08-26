@@ -184,7 +184,17 @@ class RAGEngine:
                     pass
             metadatas.append(meta)
             documents.append(chunk)
-        embeddings = self._embed_texts(documents)
+        # Compute embeddings with explicit failure reporting
+        try:
+            embeddings = self._embed_texts(documents)
+        except Exception as e:
+            logger.exception("[RAG] Embedding failed doc_id=%s error=%s", document_id, e)
+            try:
+                from .rag_jobs import job_store
+                job_store.fail(document_id, f"Tạo embedding thất bại: {e}")
+            except Exception:
+                pass
+            raise
         try:
             dim = len(embeddings[0]) if embeddings and isinstance(embeddings[0], list) else None
         except Exception:
@@ -475,6 +485,167 @@ class RAGEngine:
             return file_bytes.decode('utf-8', errors='ignore')
         except Exception:
             return ""
+
+    # -------- Metadata extraction & classification --------
+    def analyze_file(self, *, file_bytes: bytes, file_name: str) -> Dict[str, Any]:
+        """Extract full text then classify simple metadata.
+        Returns: { text, title, doc_type, date, year, month, tags }
+        """
+        text = self._extract_text(file_bytes=file_bytes, file_name=file_name) or ""
+        meta = self._classify_metadata(text)
+        # Simple keyword-based tags from content
+        tags = self._extract_keywords(text, top_k=8)
+        out = {"text": text, "tags": tags}
+        out.update(meta)
+        return out
+
+    def _classify_metadata(self, text: str) -> Dict[str, Any]:
+        text = (text or "").strip()
+        title = self._guess_title(text)
+        detected_date = self._find_date(text)
+        year = None
+        month = None
+        if detected_date:
+            try:
+                from datetime import datetime
+                dt = datetime.fromisoformat(detected_date)
+                year = dt.year
+                month = dt.month
+            except Exception:
+                pass
+
+        # Try LLM if configured to detect doc type; fallback heuristics
+        doc_type = self._guess_type(text, title)
+
+        return {
+            "title": title,
+            "doc_type": doc_type,
+            "date": detected_date,
+            "year": year,
+            "month": month,
+        }
+
+    def _guess_title(self, text: str) -> Optional[str]:
+        # First non-empty line up to 120 chars
+        for line in (text or "").splitlines():
+            s = line.strip()
+            if s:
+                # prefer all-caps headings
+                if len(s) <= 120:
+                    return s
+                return s[:120]
+        return None
+
+    def _find_date(self, text: str) -> Optional[str]:
+        """Find the first date and normalize to ISO (YYYY-MM-DD). Supports dd/mm/yyyy, dd-mm-yyyy, yyyy-mm-dd, yyyy/mm/dd."""
+        if not text:
+            return None
+        # Common VN formats
+        patterns = [
+            r"\b(\d{1,2})[\/-](\d{1,2})[\/-](\d{4})\b",  # dd/mm/yyyy or dd-mm-yyyy
+            r"\b(\d{4})[\/-](\d{1,2})[\/-](\d{1,2})\b",  # yyyy-mm-dd or yyyy/mm/dd
+        ]
+        import re as _re
+        from datetime import datetime
+        for pat in patterns:
+            m = _re.search(pat, text)
+            if m:
+                g = m.groups()
+                try:
+                    if len(g) == 3 and len(g[0]) <= 2:
+                        d, mth, y = int(g[0]), int(g[1]), int(g[2])
+                        dt = datetime(year=y, month=max(1, min(12, mth)), day=max(1, min(31, d)))
+                    else:
+                        y, mth, d = int(g[0]), int(g[1]), int(g[2])
+                        dt = datetime(year=y, month=max(1, min(12, mth)), day=max(1, min(31, d)))
+                    return dt.date().isoformat()
+                except Exception:
+                    continue
+        return None
+
+    def _guess_type(self, text: str, title: Optional[str]) -> str:
+        # Heuristics first
+        t = (title or "").lower()
+        body = (text or "").lower()
+        if any(k in t or k in body for k in ["công văn", "cong van", "cv "]):
+            return "cong-van"
+        if any(k in t or k in body for k in ["quyết định", "quyet dinh"]):
+            return "quyet-dinh"
+        if any(k in t or k in body for k in ["thông báo", "thong bao"]):
+            return "thong-bao"
+        if any(k in t or k in body for k in ["biên bản", "bien ban"]):
+            return "bien-ban"
+
+        # Try LLM if enabled
+        provider = (self.settings.llm_provider or "none").lower()
+        if provider == "ollama":
+            try:
+                import ollama  # type: ignore
+                model = os.environ.get("OLLAMA_MODEL", "llama3.1:8b")
+                prompt = (
+                    "Phân loại loại văn bản theo các nhãn: cong-van, quyet-dinh, thong-bao, bien-ban, khac.\n"
+                    "Chỉ trả lời 1 nhãn duy nhất, dạng slug không dấu.\n"
+                    f"Tiêu đề: {title or ''}\nNội dung: {text[:1500]}\nNhãn:"
+                )
+                r = ollama.chat(model=model, messages=[{"role": "user", "content": prompt}])
+                ans = (r.get("message", {}) or {}).get("content") or ""
+                label = ans.strip().split()[0].lower()
+                if label in {"cong-van", "quyet-dinh", "thong-bao", "bien-ban"}:
+                    return label
+            except Exception:
+                pass
+        return "khac"
+
+    def _extract_keywords(self, text: str, top_k: int = 8) -> List[str]:
+        """Lightweight keyword extraction (VN/EN) without external downloads.
+        - Lowercase, strip punctuation
+        - Remove stopwords and very short tokens
+        - Count unigrams and bigrams; select top unique terms
+        Returns list of tags (slugs)
+        """
+        import re as _re
+        from collections import Counter
+
+        if not text:
+            return []
+
+        s = (text or "").lower()
+        # keep unicode letters/digits and spaces
+        s = _re.sub(r"[^\w\sà-ỹá-ýâêôăđơưÀ-ỸÁ-ÝÂÊÔĂĐƠƯ]", " ", s)
+        tokens = [t for t in _re.split(r"\s+", s) if t]
+
+        # Minimal VN/EN stopwords (extendable)
+        stop = {
+            "the","and","or","of","to","in","for","on","at","by","with","a","an","is","are","was","were","be","as","it","that","this","from","we","you","they","he","she","i","but","not","have","has","had","will","shall","can","could","may","might","do","does","did",
+            "và","hoặc","của","cho","trong","trên","tại","bởi","với","là","một","những","các","được","đã","sẽ","đang","này","kia","đó","khi","từ","theo","về","có","không","đến","tại","hay","nên","cần","nếu","thì","ra","vào","cũng","được",
+        }
+
+        def is_good(tok: str) -> bool:
+            if len(tok) < 3:
+                return False
+            if tok.isdigit():
+                return False
+            if tok in stop:
+                return False
+            return True
+
+        unigrams = [t for t in tokens if is_good(t)]
+        bigrams = [f"{a}-{b}" for a, b in zip(tokens, tokens[1:]) if is_good(a) and is_good(b)]
+
+        counts = Counter(unigrams)
+        counts_big = Counter(bigrams)
+
+        # Interleave bigrams and unigrams for diversity
+        cand = [w for w, _ in counts_big.most_common(top_k * 2)] + [w for w, _ in counts.most_common(top_k * 2)]
+        out: List[str] = []
+        for w in cand:
+            if len(out) >= top_k:
+                break
+            if w not in out:
+                out.append(w)
+        return out
+
+
 
     def _extract_pdf(self, file_bytes: bytes) -> str:
         from io import BytesIO

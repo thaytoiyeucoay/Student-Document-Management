@@ -1,33 +1,44 @@
-# FastAPI Backend for React Study
+# Backend FastAPI cho hệ thống Quản lý Tài liệu Sinh viên
 
-## Prerequisites
+## Giới thiệu
+Backend sử dụng FastAPI, tích hợp Supabase (Postgres + Storage, pgvector) và pipeline RAG dựa trên LLM API (OpenAI/Gemini) để lập chỉ mục và truy vấn văn bản.
+
+Lưu ý: Tính năng "Bản đồ khái niệm (Concept Graph)" đã được gỡ bỏ hoàn toàn khỏi hệ thống.
+
+## Yêu cầu
 - Python 3.10+
-- Supabase project with:
-  - Tables: `subjects`, `documents`
+- Supabase project với:
+  - Bảng: `subjects`, `documents`
   - Storage bucket: `documents`
-  - RLS and policies configured (see below)
+  - Bật RLS và cấu hình Policy (bên dưới)
 
-## Setup
-1) Create a virtual environment and install deps
+## Cài đặt
+1) Tạo môi trường ảo và cài đặt phụ thuộc
 ```
 python -m venv venv
 venv\Scripts\activate
 pip install -r backend/requirements.txt
 ```
 
-2) Create `.env` in `backend/` (see `.env.example`)
+2) Tạo file `.env` trong thư mục `backend/` (tham khảo `.env.example`)
 
-3) Run the server
+## Khởi chạy
+Chạy server phát triển:
 ```
 uvicorn backend.app.main:app --reload --port 8000
 ```
 
 API base: `http://localhost:8000/api`
 
-## Environment (.env)
-See `.env.example` for all options.
+## Cấu hình môi trường (.env)
+Tham khảo đầy đủ trong `backend/.env.example`. Một số biến thường dùng:
 
-## Supabase Tables (SQL)
+- SUPABASE_URL, SUPABASE_SERVICE_KEY
+- STORE_BACKEND (mặc định: supabase)
+- EMBED_PROVIDER, LLM_PROVIDER (tùy chọn)
+- RAG_* (các biến cấu hình pipeline RAG)
+
+## Cấu trúc bảng Supabase (SQL)
 ```
 create table if not exists public.subjects (
   id bigserial primary key,
@@ -56,13 +67,13 @@ create index if not exists subjects_user_id_idx on public.subjects(user_id);
 create index if not exists documents_user_id_idx on public.documents(user_id);
 ```
 
-## RLS and Policies
-Enable RLS on both tables:
+## RLS và Policies
+Bật RLS cho cả hai bảng:
 ```
 alter table public.subjects enable row level security;
 alter table public.documents enable row level security;
 ```
-Example permissive policy (adjust to your needs):
+Ví dụ policy (tùy chỉnh theo nhu cầu):
 ```
 create policy if not exists subjects_owner on public.subjects
 for all using (auth.uid() = user_id or user_id is null)
@@ -73,71 +84,55 @@ for all using (auth.uid() = user_id or user_id is null)
 with check (auth.uid() = user_id or user_id is null);
 ```
 
-## Storage
-- Create bucket `documents`.
-- Public bucket: URLs returned by backend are public.
-- Private bucket: adjust backend to return signed URLs (can add an endpoint to generate signed URLs on demand).
+## Lưu trữ tệp (Storage)
+- Tạo bucket `documents`.
+- Nếu bucket Public: URL trả về từ backend có thể truy cập trực tiếp.
+- Nếu bucket Private: điều chỉnh backend để trả về Signed URL (có thể bổ sung endpoint tạo link ký).
 
-## Endpoints
+## Các endpoint chính
 - GET `/api/health`
 - Subjects: GET/POST/PATCH/DELETE `/api/subjects`
 - Documents: GET/POST/PATCH/DELETE `/api/documents`
 - Upload file: POST `/api/documents/{id}/upload` (multipart)
 
-## RAG Chatbot (100% free, local)
+## Tính năng RAG
+Pipeline RAG hoạt động với:
 
-This backend ships with a fully local, free RAG pipeline using:
+- Vector store: Supabase (pgvector)
+- Embeddings/LLM: qua API nhà cung cấp (OpenAI/Gemini)
+- Trích xuất văn bản: `pypdf`, `python-docx`, văn bản thuần
 
-- Embeddings: `sentence-transformers/all-MiniLM-L6-v2`
-- Vector DB: `ChromaDB` (persisted to `backend/rag_store` by default)
-- Text extraction: `pypdf`, `python-docx`, plain text
-- LLM (optional): `Ollama` if you already installed it. If not available, the API falls back to a simple extractive answer from retrieved chunks.
-
-### Install dependencies
+### Cài đặt phụ thuộc
 
 ```
 pip install -r backend/requirements.txt
 ```
 
-### Optional: Local LLM with Ollama
 
-Install Ollama from https://ollama.com/download, then pull a model, e.g.:
 
-```
-ollama pull llama3.1:8b
-```
 
-You can change the model via `OLLAMA_MODEL` in `.env`.
 
-### Environment (optional)
+### Cách hoạt động
 
-See `backend/.env.example` for RAG options:
+Khi upload tệp qua `/api/documents/{id}/upload`, backend sẽ:
 
-- `RAG_STORE_DIR` (default `./rag_store`)
-- `RAG_EMBED_MODEL` (default `sentence-transformers/all-MiniLM-L6-v2`)
-- `OLLAMA_MODEL` (default `llama3.1:8b`) if Ollama is installed
+1. Tải bytes lên Supabase Storage
+2. Lập chỉ mục nội dung vào Supabase (pgvector) theo từng đoạn (chunk)
 
-### How it works
+Lỗi trong quá trình lập chỉ mục sẽ không chặn việc upload tệp.
 
-When you upload a file to `/api/documents/{id}/upload`, the backend:
-
-1. Uploads the bytes to Supabase Storage (as before)
-2. Best-effort indexes the file contents into ChromaDB (per doc chunk)
-
-Indexing errors do not block the upload.
-
-### Query endpoint
+### Truy vấn RAG
 
 ```
 POST /api/rag/query
 {
-  "query": "<your question>",
-  "subject_id": "<optional subject id>",
+  "query": "<câu hỏi>",
+  "subject_id": "<tùy chọn: id môn học>",
   "top_k": 5
 }
 ```
 
-Response:
+Phản hồi:
 
 ```
 {
@@ -146,4 +141,48 @@ Response:
 }
 ```
 
-If Ollama is available, `answer` is LLM-generated from the retrieved context; otherwise, `answer` contains the top relevant snippets.
+### Cấu hình: dùng LLM API + Supabase (pgvector)
+
+Nếu bạn không dùng stack local miễn phí và muốn:
+- Gọi API của nhà cung cấp LLM/Embeddings (OpenAI/Gemini), và
+- Lưu vector trên Supabase (pgvector),
+
+hãy cấu hình như sau:
+
+1) Biến môi trường `.env` (ví dụ):
+```
+# Supabase
+SUPABASE_URL=...
+SUPABASE_SERVICE_KEY=...
+
+# Vector store: Supabase
+STORE_BACKEND=supabase
+
+# Embeddings + LLM qua API cloud (chọn một nhà cung cấp)
+# OpenAI
+EMBED_PROVIDER=openai
+LLM_PROVIDER=openai
+OPENAI_API_KEY=sk-...
+OPENAI_EMBED_MODEL=text-embedding-3-small
+OPENAI_CHAT_MODEL=gpt-4o-mini
+
+# Hoặc Gemini
+# EMBED_PROVIDER=gemini
+# LLM_PROVIDER=gemini
+# GEMINI_API_KEY=...
+# GEMINI_EMBED_MODEL=models/text-embedding-004
+# GEMINI_CHAT_MODEL=gemini-1.5-flash
+```
+
+2) Khởi tạo schema pgvector trên Supabase:
+- Mở file `backend/pgvector.sql` và chạy toàn bộ nội dung trên Supabase SQL Editor.
+- File này tạo bảng/lược đồ cần thiết cho `SupabaseVectorStore` (pgvector) và các chỉ mục liên quan.
+
+3) Sử dụng:
+- Upload tài liệu: `POST /api/documents/{id}/upload` sẽ lập chỉ mục vào Supabase pgvector thay vì Chroma.
+- Truy vấn: `POST /api/rag/query` sẽ truy hồi từ pgvector; phần tạo answer dùng LLM theo `LLM_PROVIDER` đã chọn.
+
+### Gợi ý gỡ lỗi nhanh
+- Kiểm tra biến môi trường trong `backend/.env` và quyền truy cập Supabase.
+- Xem log server trong terminal khi chạy `uvicorn`.
+

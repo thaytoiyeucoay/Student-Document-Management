@@ -16,6 +16,7 @@ const DocumentItem = ({ document, onDelete, onUpdate, onPreview }: DocumentItemP
   const [job, setJob] = useState<{ stage: string; progress: number; message?: string } | null>(null);
   const [jobTick, setJobTick] = useState(0);
   const canIndexNow = useMemo(() => Boolean(document.fileUrl), [document.fileUrl]);
+  
 
   // Poll RAG job status if any
   useEffect(() => {
@@ -194,6 +195,7 @@ const DocumentItem = ({ document, onDelete, onUpdate, onPreview }: DocumentItemP
               </button>
             )}
           </div>
+          
         </div>
         <div className="flex-shrink-0 flex items-center gap-1">
           <button

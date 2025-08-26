@@ -1,10 +1,19 @@
 import type { Document, Subject, ScheduleItem } from '../types';
 import type { Annotation } from '../types';
+import { supabase } from './lib/supabase';
 
 const apiBase = import.meta.env.VITE_API_URL as string | undefined;
 
 function hasBackend() {
   return typeof apiBase === 'string' && apiBase.length > 0;
+}
+
+function getCurrentWorkspaceId(): string | null {
+  try {
+    return localStorage.getItem('currentWorkspaceId');
+  } catch {
+    return null;
+  }
 }
 
 async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
@@ -13,6 +22,14 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
   const headers = isForm
     ? (options.headers || {})
     : { 'Content-Type': 'application/json', ...(options.headers || {}) };
+  // Attach Supabase access token if available
+  try {
+    const { data } = await supabase.auth.getSession();
+    const tok = data?.session?.access_token;
+    if (tok) {
+      (headers as any)['Authorization'] = `Bearer ${tok}`;
+    }
+  } catch {}
   const res = await fetch(`${apiBase}${path}`, {
     ...options,
     headers,
@@ -51,6 +68,7 @@ function mapDocToApi(d: Partial<Document>): any {
     link: d.link || undefined, // Avoid sending "" which fails AnyHttpUrl
     favorite: d.favorite ?? undefined,
     tags: (d.tags && d.tags.length ? d.tags : undefined),
+    workspace_id: getCurrentWorkspaceId() || undefined,
   };
 }
 
@@ -60,6 +78,40 @@ function mapSubjectFromApi(s: any): Subject {
 
 export const api = {
   hasBackend,
+  // Auth + Profiles
+  async getMyProfile(): Promise<{ id: string; user_id: string; full_name?: string; avatar_url?: string; role: 'admin' | 'student' }>
+  {
+    return await request(`/profiles/me`);
+  },
+  async updateMyProfile(patch: { full_name?: string; avatar_url?: string }): Promise<{ id: string; user_id: string; full_name?: string; avatar_url?: string; role: 'admin' | 'student' }>
+  {
+    return await request(`/profiles/me`, { method: 'PATCH', body: JSON.stringify(patch) });
+  },
+  // Workspaces
+  async listWorkspaces(): Promise<Array<{ id: string; name: string; describes?: string; created_by: string }>>
+  {
+    return await request(`/workspaces`);
+  },
+  async createWorkspace(payload: { name: string; describes?: string }): Promise<{ id: string; name: string; describes?: string; created_by: string }>
+  {
+    return await request(`/workspaces`, { method: 'POST', body: JSON.stringify(payload) });
+  },
+  async deleteWorkspace(id: string): Promise<void>
+  {
+    await request(`/workspaces/${id}`, { method: 'DELETE' });
+  },
+  async listWorkspaceMembers(workspaceId: string): Promise<Array<{ user_id: string; role: 'owner' | 'editor' | 'viewer' }>>
+  {
+    return await request(`/workspaces/${workspaceId}/members`);
+  },
+  async addWorkspaceMember(workspaceId: string, payload: { user_id: string; role: 'editor' | 'viewer' }): Promise<{ ok: boolean }>
+  {
+    return await request(`/workspaces/${workspaceId}/members`, { method: 'POST', body: JSON.stringify(payload) });
+  },
+  async removeWorkspaceMember(workspaceId: string, userId: string): Promise<{ ok: boolean }>
+  {
+    return await request(`/workspaces/${workspaceId}/members/${encodeURIComponent(userId)}`, { method: 'DELETE' });
+  },
   // AI helpers
   async aiTranslate(payload: { text: string; target_lang?: string; return_format?: 'text' | 'markdown' }): Promise<{ translated: string; model: string }>
   {
@@ -192,13 +244,16 @@ export const api = {
   },
   // Subjects
   async listSubjects(): Promise<Subject[]> {
-    const data = await request<any[]>(`/subjects`);
+    const ws = getCurrentWorkspaceId();
+    const qs = ws ? `?workspace_id=${encodeURIComponent(ws)}` : '';
+    const data = await request<any[]>(`/subjects${qs}`);
     return data.map(mapSubjectFromApi);
   },
   async createSubject(name: string, describes?: string, semester?: string): Promise<Subject> {
+    const ws = getCurrentWorkspaceId();
     const data = await request<any>(`/subjects`, {
       method: 'POST',
-      body: JSON.stringify({ name, describes, semester }),
+      body: JSON.stringify({ name, describes, semester, workspace_id: ws || undefined }),
     });
     return mapSubjectFromApi(data);
   },
@@ -215,7 +270,11 @@ export const api = {
 
   // Documents
   async listDocuments(subjectId?: string): Promise<Document[]> {
-    const qs = subjectId ? `?subject_id=${encodeURIComponent(subjectId)}` : '';
+    const ws = getCurrentWorkspaceId();
+    const params = new URLSearchParams();
+    if (subjectId) params.set('subject_id', subjectId);
+    if (ws) params.set('workspace_id', ws);
+    const qs = params.toString() ? `?${params.toString()}` : '';
     const data = await request<any[]>(`/documents${qs}`);
     return data.map(mapDocFromApi);
   },

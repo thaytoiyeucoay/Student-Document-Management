@@ -22,9 +22,8 @@ const AddDocumentForm = ({ onAdd, subjectId }: AddDocumentFormProps) => {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     const newErrors: Record<string, string> = {};
-    if (!name.trim()) newErrors.name = 'Vui lòng nhập tên tài liệu';
-    if (!describes.trim()) newErrors.describes = 'Vui lòng nhập mô tả';
-    if (!author.trim()) newErrors.author = 'Vui lòng nhập tác giả';
+    // Cho phép để trống name/description/author nếu có đính kèm file (backend sẽ tự phân tích và điền)
+    if (!file && !name.trim()) newErrors.name = 'Vui lòng nhập tên tài liệu (hoặc tải file để AI tự điền)';
     // Validate file
     if (file) {
       const maxSize = 10 * 1024 * 1024; // 10MB
@@ -106,7 +105,7 @@ const AddDocumentForm = ({ onAdd, subjectId }: AddDocumentFormProps) => {
       <div className="space-y-4">
         <input
           type="text"
-          placeholder="Name"
+          placeholder="Tên tài liệu (có thể bỏ trống nếu tải file)"
           value={name}
           onChange={(e) => setName(e.target.value)}
           disabled={submitting}
@@ -116,7 +115,7 @@ const AddDocumentForm = ({ onAdd, subjectId }: AddDocumentFormProps) => {
         {errors.name && <p className="text-sm text-rose-300">{errors.name}</p>}
         <input
           type="text"
-          placeholder="Description"
+          placeholder="Mô tả (có thể bỏ trống nếu tải file)"
           value={describes}
           onChange={(e) => setDescribes(e.target.value)}
           disabled={submitting}
@@ -153,7 +152,7 @@ const AddDocumentForm = ({ onAdd, subjectId }: AddDocumentFormProps) => {
           focus:outline-none focus:ring-2 focus:ring-slate-300 focus:border-transparent transition"
         />
         <div>
-          <label className="block text-sm font-medium text-white/80 mb-1">Upload File (optional)</label>
+          <label className="block text-sm font-medium text-white/80 mb-1">Upload File (khuyến nghị)</label>
           <div
             onDrop={onDrop}
             onDragOver={onDragOver}
@@ -164,6 +163,7 @@ const AddDocumentForm = ({ onAdd, subjectId }: AddDocumentFormProps) => {
               <button type="button" onClick={() => fileInputRef.current?.click()} className="ml-1 underline hover:text-white">chọn file</button>
               . Bạn cũng có thể dán (Ctrl/⌘+V).
             </p>
+            <p className="mt-1 text-xs text-white/60">Sau khi tải lên, hệ thống sẽ tự động đọc nội dung và điền tiêu đề, ngày/tháng/năm, loại văn bản và gắn thẻ (#cong-van, year:YYYY, ...).</p>
             {file && <p className="mt-2 text-white/90 text-sm">Đã chọn: {file.name}</p>}
             <input
               ref={fileInputRef}

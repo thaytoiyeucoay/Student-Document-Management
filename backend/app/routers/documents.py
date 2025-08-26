@@ -19,13 +19,13 @@ def _table_name() -> str:
 
 
 @router.get("/documents", response_model=List[DocumentOut])
-async def list_documents(subject_id: Optional[str] = None, user=Depends(get_current_user)):
+async def list_documents(subject_id: Optional[str] = None, workspace_id: Optional[str] = None, user=Depends(get_current_user)):
     sb = get_supabase()
     query = sb.table(_table_name()).select("*")
     if subject_id is not None:
         query = query.eq("subject_id", subject_id)
-    if user and (uid := user.get("sub")):
-        query = query.eq("user_id", uid)
+    if workspace_id is not None:
+        query = query.eq("workspace_id", workspace_id)
     resp = query.order("id", desc=True).execute()
     return resp.data or []
 
@@ -39,6 +39,7 @@ async def create_document(payload: DocumentCreate, user=Depends(get_current_user
     # Ensure tags is JSON-serializable
     if data.get("tags") is None:
         data["tags"] = []
+    # workspace_id optional passthrough (enforced by RLS)
     resp = sb.table(_table_name()).insert(data).execute()
     if not resp.data:
         raise HTTPException(status_code=500, detail="Failed to create document")
@@ -50,8 +51,6 @@ async def update_document(doc_id: str, payload: DocumentUpdate, user=Depends(get
     sb = get_supabase()
     data = {k: v for k, v in payload.model_dump().items() if v is not None}
     q = sb.table(_table_name()).update(data).eq("id", doc_id)
-    if user and (uid := user.get("sub")):
-        q = q.eq("user_id", uid)
     resp = q.execute()
     if not resp.data:
         raise HTTPException(status_code=404, detail="Document not found")
@@ -62,8 +61,6 @@ async def update_document(doc_id: str, payload: DocumentUpdate, user=Depends(get
 async def delete_document(doc_id: str, user=Depends(get_current_user)):
     sb = get_supabase()
     q = sb.table(_table_name()).delete().eq("id", doc_id)
-    if user and (uid := user.get("sub")):
-        q = q.eq("user_id", uid)
     resp = q.execute()
     if resp.count == 0:
         raise HTTPException(status_code=404, detail="Document not found")
@@ -77,8 +74,6 @@ async def upload_document_file(doc_id: str, file: UploadFile = File(...), enable
 
     # Make sure the document exists and belongs to user
     q = sb.table(_table_name()).select("*").eq("id", doc_id)
-    if user and (uid := user.get("sub")):
-        q = q.eq("user_id", uid)
     doc_resp = q.execute()
     if not doc_resp.data:
         raise HTTPException(status_code=404, detail="Document not found")
@@ -129,12 +124,56 @@ async def upload_document_file(doc_id: str, file: UploadFile = File(...), enable
         "file_path": path,
         "file_url": public_url,
     }).eq("id", doc_id)
-    if user and (uid := user.get("sub")):
-        update = update.eq("user_id", uid)
     updated = update.execute()
     if not updated.data:
         raise HTTPException(status_code=500, detail="Failed to update document with file info")
     saved_doc = updated.data[0]
+
+    # Auto analyze PDF/Doc to extract title, date, classify type, and content-based tags; update metadata non-destructively
+    try:
+        engine = get_engine()
+        analysis = engine.analyze_file(file_bytes=content, file_name=file.filename or path)
+        title = (analysis or {}).get("title")
+        doc_type = (analysis or {}).get("doc_type")  # cong-van | quyet-dinh | thong-bao | bien-ban | khac
+        date_iso = (analysis or {}).get("date")  # YYYY-MM-DD
+        year = (analysis or {}).get("year")
+        month = (analysis or {}).get("month")
+        text = (analysis or {}).get("text") or ""
+        ai_tags = (analysis or {}).get("tags") or []
+
+        # Merge tags: existing user tags + AI content tags + doc_type (content-derived)
+        old_tags = saved_doc.get("tags") or []
+        derived = []
+        if isinstance(doc_type, str) and doc_type:
+            derived.append(doc_type)
+        # Dedupe while preserving order; prefer AI/content over random declared values
+        merged_tags: list[str] = []
+        for t in [*old_tags, *ai_tags, *derived]:
+            if isinstance(t, str) and t and t not in merged_tags:
+                merged_tags.append(t)
+        # Cap to at most 3 tags
+        merged_tags = merged_tags[:3]
+
+        # Only set name/describes if they are empty to avoid overwriting user's values
+        new_name = saved_doc.get("name") or title or saved_doc.get("name")
+        # describes: short preview
+        preview = (text[:200] + ("…" if len(text) > 200 else "")) if text else saved_doc.get("describes")
+        new_desc = saved_doc.get("describes") or preview
+
+        upd = {
+            "tags": merged_tags,
+        }
+        if new_name is not None:
+            upd["name"] = new_name
+        if new_desc is not None:
+            upd["describes"] = new_desc
+
+        uq = sb.table(_table_name()).update(upd).eq("id", doc_id)
+        ures = uq.execute()
+        if ures.data:
+            saved_doc = ures.data[0]
+    except Exception as e:
+        logger.exception("Auto analysis failed for doc_id=%s: %s", doc_id, e)
 
     # Trigger RAG indexing in background if enabled (best-effort, non-blocking)
     try:
@@ -169,6 +208,10 @@ async def upload_document_file(doc_id: str, file: UploadFile = File(...), enable
                     logger.info("[RAG] Index scheduled and completed doc_id=%s chunks=%s", doc_id, (res or {}).get("chunks"))
                 except Exception as e:
                     logger.exception("[RAG] Index failed for doc_id=%s: %s", doc_id, e)
+                    try:
+                        job_store.fail(str(doc_id), f"Index thất bại: {e}")
+                    except Exception:
+                        pass
 
             if background_tasks is not None:
                 background_tasks.add_task(_do_index)
@@ -182,3 +225,6 @@ async def upload_document_file(doc_id: str, file: UploadFile = File(...), enable
         logger.exception("Failed to schedule/skip RAG indexing for doc_id=%s: %s", doc_id, e)
 
     return saved_doc
+
+
+# Concept graph endpoint removed per request
