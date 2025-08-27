@@ -8,14 +8,6 @@ function hasBackend() {
   return typeof apiBase === 'string' && apiBase.length > 0;
 }
 
-function getCurrentWorkspaceId(): string | null {
-  try {
-    return localStorage.getItem('currentWorkspaceId');
-  } catch {
-    return null;
-  }
-}
-
 async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
   if (!hasBackend()) throw new Error('Backend not configured');
   const isForm = options.body instanceof FormData;
@@ -68,7 +60,6 @@ function mapDocToApi(d: Partial<Document>): any {
     link: d.link || undefined, // Avoid sending "" which fails AnyHttpUrl
     favorite: d.favorite ?? undefined,
     tags: (d.tags && d.tags.length ? d.tags : undefined),
-    workspace_id: getCurrentWorkspaceId() || undefined,
   };
 }
 
@@ -86,31 +77,6 @@ export const api = {
   async updateMyProfile(patch: { full_name?: string; avatar_url?: string }): Promise<{ id: string; user_id: string; full_name?: string; avatar_url?: string; role: 'admin' | 'student' }>
   {
     return await request(`/profiles/me`, { method: 'PATCH', body: JSON.stringify(patch) });
-  },
-  // Workspaces
-  async listWorkspaces(): Promise<Array<{ id: string; name: string; describes?: string; created_by: string }>>
-  {
-    return await request(`/workspaces`);
-  },
-  async createWorkspace(payload: { name: string; describes?: string }): Promise<{ id: string; name: string; describes?: string; created_by: string }>
-  {
-    return await request(`/workspaces`, { method: 'POST', body: JSON.stringify(payload) });
-  },
-  async deleteWorkspace(id: string): Promise<void>
-  {
-    await request(`/workspaces/${id}`, { method: 'DELETE' });
-  },
-  async listWorkspaceMembers(workspaceId: string): Promise<Array<{ user_id: string; role: 'owner' | 'editor' | 'viewer' }>>
-  {
-    return await request(`/workspaces/${workspaceId}/members`);
-  },
-  async addWorkspaceMember(workspaceId: string, payload: { user_id: string; role: 'editor' | 'viewer' }): Promise<{ ok: boolean }>
-  {
-    return await request(`/workspaces/${workspaceId}/members`, { method: 'POST', body: JSON.stringify(payload) });
-  },
-  async removeWorkspaceMember(workspaceId: string, userId: string): Promise<{ ok: boolean }>
-  {
-    return await request(`/workspaces/${workspaceId}/members/${encodeURIComponent(userId)}`, { method: 'DELETE' });
   },
   // AI helpers
   async aiTranslate(payload: { text: string; target_lang?: string; return_format?: 'text' | 'markdown' }): Promise<{ translated: string; model: string }>
@@ -167,13 +133,16 @@ export const api = {
     }
     return await res.json();
   },
-  async ragQuery(params: { query: string; subjectId?: string; topK?: number; tags?: string[]; author?: string; timeFrom?: string; timeTo?: string }): Promise<{ answer: string; contexts: Array<string | { title?: string; url?: string; page?: number | string; snippet?: string }> }> {
+  async ragQuery(params: { query: string; subjectId?: string; topK?: number; tags?: string[]; author?: string; timeFrom?: string; timeTo?: string; webSearch?: boolean; webTopK?: number }): Promise<{ answer: string; contexts: Array<string | { title?: string; url?: string; page?: number | string; snippet?: string }> }> {
     const body: any = { query: params.query, top_k: params.topK ?? 5 };
     if (params.subjectId) body.subject_id = params.subjectId;
     if (params.tags && params.tags.length) body.tags = params.tags;
     if (params.author) body.author = params.author;
     if (params.timeFrom) body.time_from = params.timeFrom;
     if (params.timeTo) body.time_to = params.timeTo;
+    // optional web search flags
+    if ((params as any).webSearch != null) body.web_search = Boolean((params as any).webSearch);
+    if ((params as any).webTopK != null) body.web_top_k = Number((params as any).webTopK);
     const data = await request<any>(`/rag/query`, { method: 'POST', body: JSON.stringify(body) });
     const ctx = Array.isArray(data.contexts) ? data.contexts : [];
     return { answer: data.answer as string, contexts: ctx };
@@ -244,16 +213,13 @@ export const api = {
   },
   // Subjects
   async listSubjects(): Promise<Subject[]> {
-    const ws = getCurrentWorkspaceId();
-    const qs = ws ? `?workspace_id=${encodeURIComponent(ws)}` : '';
-    const data = await request<any[]>(`/subjects${qs}`);
+    const data = await request<any[]>(`/subjects`);
     return data.map(mapSubjectFromApi);
   },
   async createSubject(name: string, describes?: string, semester?: string): Promise<Subject> {
-    const ws = getCurrentWorkspaceId();
     const data = await request<any>(`/subjects`, {
       method: 'POST',
-      body: JSON.stringify({ name, describes, semester, workspace_id: ws || undefined }),
+      body: JSON.stringify({ name, describes, semester }),
     });
     return mapSubjectFromApi(data);
   },
@@ -270,10 +236,8 @@ export const api = {
 
   // Documents
   async listDocuments(subjectId?: string): Promise<Document[]> {
-    const ws = getCurrentWorkspaceId();
     const params = new URLSearchParams();
     if (subjectId) params.set('subject_id', subjectId);
-    if (ws) params.set('workspace_id', ws);
     const qs = params.toString() ? `?${params.toString()}` : '';
     const data = await request<any[]>(`/documents${qs}`);
     return data.map(mapDocFromApi);

@@ -7,8 +7,6 @@ class SubjectBase(BaseModel):
     describes: Optional[str] = None
     # Academic semester identifier, e.g., "2025.1" or "2025.2"
     semester: Optional[str] = None
-    # Workspace the subject belongs to
-    workspaceId: Optional[Union[str, int]] = Field(default=None, alias="workspace_id")
 
 
 class SubjectCreate(SubjectBase):
@@ -37,8 +35,6 @@ class DocumentBase(BaseModel):
     link: Optional[AnyHttpUrl] = None
     favorite: Optional[bool] = None
     tags: Optional[List[str]] = None
-    # Optional explicit workspace (if provided, must match subject's workspace on BE)
-    workspaceId: Optional[Union[str, int]] = Field(default=None, alias="workspace_id")
 
 
 class DocumentCreate(DocumentBase):
@@ -101,3 +97,4 @@ class ScheduleOut(ScheduleBase):
     class Config:
         from_attributes = True
         populate_by_name = True
+

@@ -39,29 +39,6 @@ export function useAuth() {
       try {
         const p = await api.getMyProfile();
         setProfile(p);
-        // Ensure a workspace is selected/created and saved to localStorage
-        try {
-          const wsList = await api.listWorkspaces();
-          // Try read existing selection
-          let selected: string | null = null;
-          try { selected = localStorage.getItem('currentWorkspaceId'); } catch {}
-          const exists = wsList.find(w => w.id === selected);
-          if (exists) {
-            // keep current selection
-          } else if (wsList.length > 0) {
-            // pick the first workspace
-            try { localStorage.setItem('currentWorkspaceId', wsList[0].id); } catch {}
-          } else {
-            // create a default workspace
-            const created = await api.createWorkspace({ name: 'Default Workspace' });
-            try { localStorage.setItem('currentWorkspaceId', created.id); } catch {}
-          }
-          // eslint-disable-next-line no-console
-          console.log('[auth] workspace ready:', localStorage.getItem('currentWorkspaceId'));
-        } catch (e) {
-          // eslint-disable-next-line no-console
-          console.warn('[auth] workspace setup skipped:', e);
-        }
       } catch (e: any) {
         // Profile may be auto-created on BE; ignore 404, show other errors
         setError(e?.message || 'Không thể tải hồ sơ');

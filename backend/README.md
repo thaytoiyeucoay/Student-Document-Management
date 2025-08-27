@@ -4,6 +4,7 @@
 Backend sử dụng FastAPI, tích hợp Supabase (Postgres + Storage, pgvector) và pipeline RAG dựa trên LLM API (OpenAI/Gemini) để lập chỉ mục và truy vấn văn bản.
 
 Lưu ý: Tính năng "Bản đồ khái niệm (Concept Graph)" đã được gỡ bỏ hoàn toàn khỏi hệ thống.
+Lưu ý: Tính năng "Workspace" cũng đã được gỡ bỏ hoàn toàn. Không còn bất kỳ endpoint, model hay UI liên quan tới workspace.
 
 ## Yêu cầu
 - Python 3.10+
@@ -37,6 +38,7 @@ Tham khảo đầy đủ trong `backend/.env.example`. Một số biến thườ
 - STORE_BACKEND (mặc định: supabase)
 - EMBED_PROVIDER, LLM_PROVIDER (tùy chọn)
 - RAG_* (các biến cấu hình pipeline RAG)
+- TAVILY_API_KEY (tùy chọn, bật tìm kiếm web)
 
 ## Cấu trúc bảng Supabase (SQL)
 ```
@@ -128,7 +130,9 @@ POST /api/rag/query
 {
   "query": "<câu hỏi>",
   "subject_id": "<tùy chọn: id môn học>",
-  "top_k": 5
+  "top_k": 5,
+  "web_search": true,        // tùy chọn: bật bổ sung ngữ cảnh từ web (Tavily)
+  "web_top_k": 3            // tùy chọn: số kết quả web (1-8)
 }
 ```
 
@@ -137,9 +141,23 @@ Phản hồi:
 ```
 {
   "answer": "...",
-  "contexts": ["chunk1", "chunk2", ...]
+  "contexts": [
+    // mỗi item có thể là chuỗi snippet, hoặc đối tượng kèm url/title
+    { "title": "...", "url": "https://...", "snippet": "..." }
+  ]
 }
 ```
+
+#### Bật tính năng tìm kiếm web (Tavily)
+
+- Đăng ký tài khoản và lấy API key tại https://tavily.com (có free tier).
+- Thêm biến sau vào `backend/.env`:
+
+```
+TAVILY_API_KEY=tvly-...
+```
+
+- Khi client gửi `web_search=true`, backend sẽ gọi Tavily Search API và hợp nhất các snippet web vào danh sách `contexts`. Nếu thiếu `TAVILY_API_KEY`, phần web search sẽ bị bỏ qua an toàn.
 
 ### Cấu hình: dùng LLM API + Supabase (pgvector)
 

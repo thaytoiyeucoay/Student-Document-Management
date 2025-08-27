@@ -12,11 +12,9 @@ def _table_name() -> str:
 
 
 @router.get("/subjects", response_model=List[SubjectOut])
-async def list_subjects(workspace_id: Optional[str] = None, user=Depends(get_current_user)):
+async def list_subjects(user=Depends(get_current_user)):
     sb = get_supabase()
     query = sb.table(_table_name()).select("*")
-    if workspace_id is not None:
-        query = query.eq("workspace_id", workspace_id)
     resp = query.order("id").execute()
     return resp.data or []
 
@@ -27,7 +25,6 @@ async def create_subject(payload: SubjectCreate, user=Depends(get_current_user))
     data = payload.model_dump()
     if user and (uid := user.get("sub")):
         data["user_id"] = uid
-    # workspace_id is optional; if provided by FE it will be stored and enforced by RLS
     resp = sb.table(_table_name()).insert(data).execute()
     if not resp.data:
         raise HTTPException(status_code=500, detail="Failed to create subject")

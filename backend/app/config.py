@@ -21,6 +21,9 @@ class Settings(BaseSettings):
     openai_api_key: str | None = Field(default=None, validation_alias="OPENAI_API_KEY")
     openai_base_url: AnyHttpUrl | None = Field(default=None, validation_alias="OPENAI_BASE_URL")
 
+    # Web search (Tavily)
+    tavily_api_key: str | None = Field(default=None, validation_alias="TAVILY_API_KEY")
+
     # OCR / Tesseract: optional explicit path to tesseract executable (Windows)
     tesseract_cmd: str | None = Field(default=None, validation_alias="TESSERACT_CMD")
     # OCR / Tesseract: optional tessdata directory for language models (e.g., tessdata_best)

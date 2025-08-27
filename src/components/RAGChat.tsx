@@ -34,6 +34,15 @@ export default function RAGChat({ subjectId, onClose }: Props) {
     try { return localStorage.getItem('chat_memory') !== '0'; } catch { return true; }
   });
   useEffect(() => { try { localStorage.setItem('chat_memory', memoryEnabled ? '1' : '0'); } catch { console.debug('persist chat_memory failed'); } }, [memoryEnabled]);
+  // Web search toggle and top-k
+  const [webSearch, setWebSearch] = useState<boolean>(() => {
+    try { return localStorage.getItem('web_search') === '1'; } catch { return false; }
+  });
+  const [webTopK, setWebTopK] = useState<number>(() => {
+    try { return Math.max(1, Math.min(8, Number(localStorage.getItem('web_top_k') || '3') || 3)); } catch { return 3; }
+  });
+  useEffect(() => { try { localStorage.setItem('web_search', webSearch ? '1' : '0'); } catch { } }, [webSearch]);
+  useEffect(() => { try { localStorage.setItem('web_top_k', String(webTopK)); } catch { } }, [webTopK]);
   const threadIdRef = useRef<string>(Math.random().toString(36).slice(2) + '-' + Date.now().toString(36));
   // Filters
   const [tagsText, setTagsText] = useState('');
@@ -216,45 +225,8 @@ export default function RAGChat({ subjectId, onClose }: Props) {
         localStorage.setItem('recent_authors', JSON.stringify(arrA));
         setAuthorSuggest(arrA);
       }
-    } catch { console.debug('persist recents failed'); }
-  };
-
-  const send = async () => {
-    const q = input.trim();
-    if (!q) return;
-    setError(null);
-    setInput('');
-    setMessages((m) => [...m, { id: newId(), role: 'user', content: q }]);
-    try {
-      setLoading(true);
-      if (!api.hasBackend()) {
-        setMessages((m) => [...m, { id: newId(), role: 'assistant', content: 'Backend chưa được cấu hình (VITE_API_URL). Vui lòng bật backend để dùng RAG.' }]);
-        return;
-      }
-      const queryForModel = `${q}\n\nYêu cầu định dạng: Hãy trả lời bằng Markdown rõ ràng, có tiêu đề, danh sách, và code block (\`\`\`lang) khi cần.`;
-      const f = buildFilterParams();
-      if (streamUrl) {
-        // Start streaming immediately
-        setMessages((m) => [...m, { id: newId(), role: 'assistant', content: '', contexts: [], showCitations: true, suggestions: buildFollowUps(q) }]);
-        await streamAnswer(queryForModel, subjectId ?? undefined);
-        // Fetch contexts in background and attach
-        try {
-          const resC = await api.ragQuery({ query: queryForModel, subjectId: subjectId ?? undefined, topK: 5, ...f });
-          attachContexts(resC.contexts || []);
-        } catch { console.debug('ctx fetch failed'); }
-      } else {
-        const res = await api.ragQuery({ query: queryForModel, subjectId: subjectId ?? undefined, topK: 5, ...f });
-        const answer = res.answer || '(no answer)';
-        const ctx = (res.contexts as ContextItem[]) || [];
-        // Streaming reveal (simulated)
-        setMessages((m) => [...m, { id: newId(), role: 'assistant', content: '', contexts: ctx, showCitations: true, suggestions: buildFollowUps(q) }]);
-        revealAnswer(answer, ctx);
-      }
-      persistRecents();
-    } catch (e: unknown) {
-      setError(e instanceof Error ? e.message : 'Lỗi gọi RAG');
-    } finally {
-      setLoading(false);
+    } catch (e) {
+      console.debug('persist recents failed', e);
     }
   };
 
@@ -338,6 +310,133 @@ export default function RAGChat({ subjectId, onClose }: Props) {
   const copy = (text: string) => {
     try { navigator.clipboard.writeText(text); } catch (e) {
       console.debug('Failed to copy:', e);
+    }
+  };
+
+  // helpers: normalize accents and resolve subject from query
+  const normalizeText = (s: string) => s
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/\p{Diacritic}+/gu, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+
+  const resolveSubjectFromQuery = (subs: any[], q: string) => {
+    const nq = normalizeText(q);
+    let best: any | null = null;
+    let bestScore = 0;
+    for (const s of subs) {
+      const name = normalizeText(String(s.name || ''));
+      const code = normalizeText(String(s.code || ''));
+      if (!name && !code) continue;
+      let score = 0;
+      if (name && nq.includes(name)) score = Math.max(score, name.length);
+      if (code && nq.includes(code)) score = Math.max(score, code.length + 1);
+      // partial token overlap
+      const tokens = name.split(' ').filter(Boolean);
+      const hit = tokens.filter(t => t.length > 1 && nq.includes(t)).length;
+      score = Math.max(score, hit);
+      if (score > bestScore) { best = s; bestScore = score; }
+    }
+    return bestScore > 0 ? best : null;
+  };
+
+  // Main send handler
+  const send = async () => {
+    if (loading) return;
+    const q = input.trim();
+    if (!q) return;
+    setInput('');
+    setError(null);
+    setLoading(true);
+    const userMsg: ChatMessage = { id: newId(), role: 'user', content: q };
+    setMessages(m => [...m, userMsg]);
+    persistRecents();
+
+    // Quick intent detection for listing subjects/documents
+    const qLower = q.toLowerCase();
+    const askSubjects = /(môn|môn học|subjects|course)s?/i.test(qLower) && /(liệt kê|danh sách|có những|gồm những|kể tên|list)/i.test(qLower);
+    const askDocs = /(tài liệu|document|file|note|bài giảng)/i.test(qLower) && /(liệt kê|danh sách|có những|gồm những|kể tên|list)/i.test(qLower);
+    try {
+      if (askSubjects || askDocs) {
+        // Fetch real data from backend (Supabase)
+        const [subjectsRes, documentsRes] = await Promise.all([
+          api.listSubjects(),
+          api.listDocuments(subjectId ?? undefined),
+        ]);
+        const subjects = subjectsRes;
+        const documents = documentsRes;
+
+        let md = '';
+        if (askSubjects) {
+          md += `Danh sách môn học hiện có (${subjects.length}):\n`;
+          if (subjects.length === 0) md += '- (chưa có môn học)\n';
+          subjects.forEach((s: any, i: number) => {
+            md += `- ${i + 1}. ${s.name || s.title || s.code || 'Môn'}${s.code ? ` (mã: ${s.code})` : ''}\n`;
+          });
+          md += '\n';
+        }
+        if (askDocs) {
+          // Nếu câu hỏi chỉ đích danh một môn -> chỉ trả về tài liệu của môn đó
+          const subjHit = resolveSubjectFromQuery(subjects as any[], q);
+          if (subjHit) {
+            const docsOfSubj = await api.listDocuments(String(subjHit.id));
+            md += `Tài liệu của môn “${subjHit.name}” (${docsOfSubj.length}):\n`;
+            if (docsOfSubj.length === 0) md += '- (chưa có tài liệu)\n';
+            for (const d of docsOfSubj as any[]) {
+              const title = d.title || d.name || d.filename || 'Tài liệu';
+              const url = d.fileUrl || d.link || '';
+              if (url) md += `- [${title}](${url})\n`; else md += `- ${title}\n`;
+            }
+          } else {
+            // Ngược lại: gom theo tất cả các môn (hoặc theo subjectId hiện chọn nếu có)
+            const bySubj = new Map<string, any[]>();
+            for (const d of documents as any[]) {
+              const sid = String(d.subjectId ?? 'unknown');
+              if (!bySubj.has(sid)) bySubj.set(sid, []);
+              bySubj.get(sid)!.push(d);
+            }
+            md += `Danh sách tài liệu${subjectId ? ' của môn đã chọn' : ''}:\n`;
+            if (documents.length === 0) md += '- (chưa có tài liệu)\n';
+            for (const [sid, docs] of bySubj.entries()) {
+              const subjName = (subjects as any[]).find((s: any) => String(s.id) === String(sid))?.name || 'Không rõ môn';
+              md += `- ${subjName} (${docs.length}):\n`;
+              for (const d of docs as any[]) {
+                const title = d.title || d.name || d.filename || 'Tài liệu';
+                const url = d.fileUrl || d.link || '';
+                if (url) md += `  • [${title}](${url})\n`; else md += `  • ${title}\n`;
+              }
+            }
+          }
+        }
+        setMessages(m => [...m, { id: newId(), role: 'assistant', content: md.trim(), suggestions: buildFollowUps(q) }]);
+        return;
+      }
+
+      // Default: run RAG
+      const f = buildFilterParams();
+      if (streamUrl) {
+        // add placeholder assistant then stream
+        setMessages(m => [...m, { id: newId(), role: 'assistant', content: '', showCitations: true, suggestions: buildFollowUps(q) }]);
+        // fetch contexts in background for citations
+        (async () => {
+          try {
+            const resC = await api.ragQuery({ query: q, subjectId: subjectId ?? undefined, topK: 5, ...f, webSearch, webTopK });
+            attachContexts((resC.contexts as ContextItem[]) || []);
+          } catch { /* silent */ }
+        })();
+        await streamAnswer(q, subjectId ?? undefined);
+      } else {
+        const res = await api.ragQuery({ query: q, subjectId: subjectId ?? undefined, topK: 5, ...f, webSearch, webTopK });
+        const answer = res.answer || '(no answer)';
+        const ctx = (res.contexts as ContextItem[]) || [];
+        setMessages((m) => [...m, { id: newId(), role: 'assistant', content: '', contexts: ctx, showCitations: true, suggestions: buildFollowUps(q) }]);
+        revealAnswer(answer, ctx);
+      }
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : 'Đã xảy ra lỗi');
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -453,6 +552,26 @@ export default function RAGChat({ subjectId, onClose }: Props) {
                     />
                     Nhớ hội thoại
                   </label>
+                  <label className="flex items-center gap-1 text-xs text-white/80 select-none" title="Bổ sung ngữ cảnh từ web (Tavily)">
+                    <input
+                      type="checkbox"
+                      className="accent-emerald-500"
+                      checked={webSearch}
+                      onChange={(e) => setWebSearch(e.target.checked)}
+                    />
+                    Tìm trên web
+                  </label>
+                  <div className="flex items-center gap-1 text-xs text-white/80 select-none" title="Số kết quả web (1-8)">
+                    <span>Top K</span>
+                    <input
+                      type="number"
+                      min={1}
+                      max={8}
+                      value={webTopK}
+                      onChange={(e) => setWebTopK(Math.max(1, Math.min(8, Number(e.target.value) || 1)))}
+                      className="w-14 h-7 px-2 rounded-md bg-white/10 border border-white/15 text-white"
+                    />
+                  </div>
                   <button
                     type="button"
                     onClick={() => setFiltersOpen(v => !v)}

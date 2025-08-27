@@ -19,13 +19,11 @@ def _table_name() -> str:
 
 
 @router.get("/documents", response_model=List[DocumentOut])
-async def list_documents(subject_id: Optional[str] = None, workspace_id: Optional[str] = None, user=Depends(get_current_user)):
+async def list_documents(subject_id: Optional[str] = None, user=Depends(get_current_user)):
     sb = get_supabase()
     query = sb.table(_table_name()).select("*")
     if subject_id is not None:
         query = query.eq("subject_id", subject_id)
-    if workspace_id is not None:
-        query = query.eq("workspace_id", workspace_id)
     resp = query.order("id", desc=True).execute()
     return resp.data or []
 
@@ -39,7 +37,6 @@ async def create_document(payload: DocumentCreate, user=Depends(get_current_user
     # Ensure tags is JSON-serializable
     if data.get("tags") is None:
         data["tags"] = []
-    # workspace_id optional passthrough (enforced by RLS)
     resp = sb.table(_table_name()).insert(data).execute()
     if not resp.data:
         raise HTTPException(status_code=500, detail="Failed to create document")

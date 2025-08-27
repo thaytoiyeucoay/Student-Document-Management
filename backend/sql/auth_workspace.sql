@@ -1,3 +1,8 @@
+-- =============================================================
+-- DEPRECATED: Workspace schema
+-- This project has removed the Workspace feature entirely.
+-- Do NOT run this SQL. Kept only for historical reference.
+-- =============================================================
 -- SQL setup for AuthN/AuthZ (Admin/Student) and Workspaces
 -- Run this in Supabase SQL Editor
 

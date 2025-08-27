@@ -3,7 +3,6 @@ from fastapi.middleware.cors import CORSMiddleware
 from .config import get_settings
 from .routers import subjects, documents, schedules, rag
 from .routers import profiles as profiles_router
-from .routers import workspaces as workspaces_router
 from .routers import ocr as ocr_router
 from .rag import RAGSettings, get_engine
 import logging
@@ -93,4 +92,4 @@ app.include_router(schedules.router, prefix=settings.api_prefix, tags=["schedule
 app.include_router(rag.router, prefix=settings.api_prefix, tags=["rag"])
 app.include_router(ocr_router.router, prefix=settings.api_prefix, tags=["ai"])
 app.include_router(profiles_router.router, prefix=settings.api_prefix, tags=["profiles"])
-app.include_router(workspaces_router.router, prefix=settings.api_prefix, tags=["workspaces"])
+

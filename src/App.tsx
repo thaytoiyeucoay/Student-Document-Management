@@ -11,7 +11,6 @@ import type { Document, Subject } from '../types'; //kiểu dữ liệu
 import { semesters, compareSemesters } from './semesters';
 import RAGChat from './components/RAGChat';
 import AuthBar from './components/AuthBar';
-import WorkspaceSwitcher from './components/WorkspaceSwitcher';
 import SubjectKanban from './components/SubjectKanban';
 import GradesDashboard from './components/GradesDashboard';
 import ImagesToPdf from './components/ImagesToPdf';
@@ -455,7 +454,6 @@ function App() {
                 <button onClick={() => setView('grades')} className={`px-3 py-2 text-sm transition ${view === 'grades' ? 'bg-slate-100 text-slate-900 dark:bg-white/20 dark:text-white' : 'hover:bg-slate-50 dark:text-white/80 dark:hover:bg-white/15'}`}>Điểm</button>
               </div>
               <button onClick={() => setTheme(theme === 'dark' ? 'light' : 'dark')} title="Đổi giao diện" aria-label="Đổi giao diện" className="px-3 py-2 text-sm rounded-md border border-slate-200 bg-white hover:bg-slate-50 text-slate-700 dark:bg-white/10 dark:border-white/15 dark:text-white/90 dark:hover:bg-white/15">{theme === 'dark' ? '☀️' : '🌙'}</button>
-              <WorkspaceSwitcher />
               <AuthBar />
             </div>
           </div>

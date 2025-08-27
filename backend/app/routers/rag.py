@@ -7,6 +7,10 @@ from ..rag import get_engine
 from ..vector_store import SupabaseVectorStore
 from ..supabase_client import get_supabase
 from ..rag_jobs import job_store
+from ..config import get_settings
+import json
+import urllib.request
+import urllib.error
 
 router = APIRouter()
 
@@ -26,6 +30,9 @@ class RAGQuery(BaseModel):
     file_type: Optional[str] = None   # pdf, docx, ... (mapped from file_ext)
     page_from: Optional[int] = None
     page_to: Optional[int] = None
+    # web search
+    web_search: Optional[bool] = False
+    web_top_k: Optional[int] = 3
 
 
 class RAGAnswer(BaseModel):
@@ -127,6 +134,19 @@ async def rag_query(payload: RAGQuery, user=Depends(get_current_user)):
             "page": cit.get("page"),
             "snippet": cit.get("snippet") or r.get("text"),
         })
+    # If requested, augment with web search via Tavily
+    if payload.web_search:
+        settings = get_settings()
+        api_key = getattr(settings, "tavily_api_key", None)
+        if api_key:
+            try:
+                tavily_ctx = _tavily_search(payload.query, api_key=api_key, max_results=max(1, min(int(payload.web_top_k or 3), 8)))
+                # Merge, dedupe by url, then simple rerank
+                contexts.extend(tavily_ctx)
+                contexts = _dedupe_and_rerank_contexts(payload.query, contexts)
+            except Exception as e:
+                # Do not fail the whole request because of web search error
+                contexts.append({"title": "Web search error", "snippet": f"{e}"})
     answer = engine.answer(payload.query, [c.get("snippet", "") for c in contexts])
     return RAGAnswer(answer=answer, contexts=contexts)
 
@@ -195,3 +215,72 @@ async def rag_diag(user=Depends(get_current_user)):
     except Exception as e:
         # trả về thông tin lỗi cụ thể
         return {"ok": False, "error": str(e)}
+
+
+def _tavily_search(query: str, api_key: str, max_results: int = 3) -> List[Dict[str, Any]]:
+    """Call Tavily Search API and return contexts list.
+    Docs: https://api.tavily.com
+    """
+    url = "https://api.tavily.com/search"
+    payload = {
+        "api_key": api_key,
+        "query": query,
+        "max_results": max_results,
+        # use deeper search for better recall
+        "search_depth": "advanced",
+        # we only need sources, not model-written answer
+        "include_answer": False,
+    }
+    data = json.dumps(payload).encode("utf-8")
+    req = urllib.request.Request(url, data=data, headers={"Content-Type": "application/json"}, method="POST")
+    try:
+        with urllib.request.urlopen(req, timeout=15) as resp:
+            body = resp.read().decode("utf-8")
+    except urllib.error.HTTPError as he:
+        text = he.read().decode("utf-8", errors="ignore") if hasattr(he, 'read') else str(he)
+        raise RuntimeError(f"Tavily HTTP {he.code}: {text}")
+    except Exception as e:
+        raise RuntimeError(f"Tavily request failed: {e}")
+
+    try:
+        obj = json.loads(body)
+    except Exception as e:
+        raise RuntimeError(f"Invalid Tavily response: {e}")
+
+    items = obj.get("results") or []
+    contexts: List[Dict[str, Any]] = []
+    for it in items:
+        title = it.get("title") or it.get("url")
+        url_item = it.get("url")
+        # prefer full content, then snippet/description
+        snippet = (it.get("content") or it.get("snippet") or it.get("meta_description") or "").strip()
+        if not snippet:
+            snippet = title or url_item or ""
+        contexts.append({
+            "title": title,
+            "url": url_item,
+            "snippet": snippet[:1000],
+        })
+    return contexts
+
+
+def _dedupe_and_rerank_contexts(query: str, contexts: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """Remove duplicate URLs and rerank by naive term overlap with the query."""
+    seen = set()
+    uniq: List[Dict[str, Any]] = []
+    for c in contexts:
+        u = (c.get("url") or c.get("title") or c.get("snippet") or "").strip()
+        key = u.lower()
+        if key in seen:
+            continue
+        seen.add(key)
+        uniq.append(c)
+
+    # compute score: count of unique query terms present in snippet/title
+    def score(c: Dict[str, Any]) -> int:
+        txt = f"{c.get('title') or ''} {c.get('snippet') or ''}".lower()
+        terms = {t for t in query.lower().split() if len(t) > 2}
+        return sum(1 for t in terms if t in txt)
+
+    uniq.sort(key=score, reverse=True)
+    return uniq
