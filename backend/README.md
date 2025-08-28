@@ -40,6 +40,15 @@ Tham khảo đầy đủ trong `backend/.env.example`. Một số biến thườ
 - RAG_* (các biến cấu hình pipeline RAG)
 - TAVILY_API_KEY (tùy chọn, bật tìm kiếm web)
 
+### Biến môi trường cho Import
+
+- Google Drive
+  - `GOOGLE_DRIVE_API_KEY` (khuyến nghị; nếu file công khai, có thể tải không cần OAuth)
+- Microsoft Graph (OneDrive) – Client Credentials
+  - `MS_GRAPH_CLIENT_ID`
+  - `MS_GRAPH_CLIENT_SECRET`
+  - `MS_GRAPH_TENANT_ID`
+
 ## Cấu trúc bảng Supabase (SQL)
 ```
 create table if not exists public.subjects (
@@ -96,6 +105,35 @@ with check (auth.uid() = user_id or user_id is null);
 - Subjects: GET/POST/PATCH/DELETE `/api/subjects`
 - Documents: GET/POST/PATCH/DELETE `/api/documents`
 - Upload file: POST `/api/documents/{id}/upload` (multipart)
+
+### Import từ Google Drive / OneDrive
+
+- POST `/api/import/google_drive`
+  - Body JSON:
+    ```json
+    {
+      "file_id": "<tùy chọn>",
+      "share_link": "<tùy chọn>",
+      "subject_id": "<id môn học>",
+      "name": "<tùy chọn: tên hiển thị>",
+      "enable_rag": true
+    }
+    ```
+  - Cần một trong hai: `file_id` hoặc `share_link` (link chia sẻ Google Drive). Server dùng `GOOGLE_DRIVE_API_KEY` (nếu có) để tải file bằng `alt=media`.
+  - Kết quả: tạo document, upload lên Supabase Storage, trả về record `documents` có `file_url`, `file_path`. Nếu `enable_rag=true`, sẽ lập chỉ mục ngay.
+
+- POST `/api/import/onedrive`
+  - Body JSON:
+    ```json
+    {
+      "share_link": "<link chia sẻ OneDrive>",
+      "subject_id": "<id môn học>",
+      "name": "<tùy chọn>",
+      "enable_rag": false
+    }
+    ```
+  - Yêu cầu cấu hình Microsoft Graph (Client Credentials) để server xin token và tải file từ `share_link`.
+
 
 ## Tính năng RAG
 Pipeline RAG hoạt động với:

@@ -10,16 +10,13 @@ import { initialSubjects, initialDocuments } from './data'; //dữ liệu ban đ
 import type { Document, Subject } from '../types'; //kiểu dữ liệu
 import { semesters, compareSemesters } from './semesters';
 import RAGChat from './components/RAGChat';
-import AuthBar from './components/AuthBar';
 import SubjectKanban from './components/SubjectKanban';
 import GradesDashboard from './components/GradesDashboard';
 import ImagesToPdf from './components/ImagesToPdf';
 import FreeOcr from './components/FreeOcr';
-import useAuth from './hooks/useAuth';
-import AuthCard from './components/AuthCard';
+// Authentication removed: app is public
 
 function App() {
-  const { session, loading } = useAuth();
   const [subjects, setSubjects] = useState<Subject[]>(initialSubjects); //state để lưu danh sách môn học
   const [docs, setDocs] = useState<Document[]>(initialDocuments); //state để lưu danh sách tài liệu
   const [selectedSubjectId, setSelectedSubjectId] = useState<string | null>(subjects[0]?.id || null); //state để lưu môn học được chọn
@@ -78,12 +75,19 @@ function App() {
     };
   }, [docs]);
 
+  // Xử lý Document sau khi import từ Drive/OneDrive
+  const handleDocImported = (doc: Document) => {
+    setDocs([doc, ...docs]);
+    showToast('Đã nhập tài liệu');
+    setShowAddForm(true);
+    setPage(1);
+    setTimeout(() => addFormRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 50);
+  };
+
   // Tải dữ liệu từ backend nếu có cấu hình; nếu không thì từ localStorage
   useEffect(() => {
     (async () => {
       if (api.hasBackend()) {
-        // Nếu có backend nhưng chưa có session -> chờ đăng nhập để tránh gọi 401
-        if (!session) return;
         try {
           const subs = await api.listSubjects();
           setSubjects(subs);
@@ -120,7 +124,7 @@ function App() {
         }
       } catch {}
     })();
-  }, [session]);
+  }, []);
 
   // Lưu dữ liệu vào localStorage (exclude File objects) chỉ khi không có backend
   useEffect(() => {
@@ -298,7 +302,6 @@ function App() {
   useEffect(() => {
     (async () => {
       if (!api.hasBackend()) return;
-      if (!session) { setDocs([]); return; }
       if (!selectedSubjectId) { setDocs([]); return; }
       try {
         const list = await api.listDocuments(selectedSubjectId);
@@ -307,7 +310,7 @@ function App() {
         // silent
       }
     })();
-  }, [selectedSubjectId, session]);
+  }, [selectedSubjectId]);
 
   // Xử lý tìm kiếm tài liệu
   const normalize = (s: string) => s.toLowerCase();
@@ -402,41 +405,9 @@ function App() {
     }, 2200);
   };
 
-  // Gate: yêu cầu đăng nhập trước khi vào ứng dụng
-  if (loading) {
-    // eslint-disable-next-line no-console
-    console.log('[boot] App() rendering loading gate');
-    return (
-      <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-white via-white to-slate-100 dark:from-slate-900 dark:to-slate-800">
-        <div className="text-center text-slate-700 dark:text-white/80">Đang tải...</div>
-      </div>
-    );
-  }
-
-  if (!session) {
-    // eslint-disable-next-line no-console
-    console.log('[boot] App() rendering login gate (no session)');
-    return (
-      <div className="min-h-screen flex flex-col">
-        <header className="sticky top-0 z-10 bg-white/70 backdrop-blur-md border-b border-slate-200 dark:bg-white/5 dark:border-white/10">
-          <div className="max-w-3xl mx-auto px-4 sm:px-6 lg:px-8 py-4 flex items-center justify-between">
-            <div>
-              <h1 className="text-2xl font-extrabold text-slate-900 dark:text-white/95 tracking-tight">Quản lý tài liệu sinh viên</h1>
-              <p className="text-slate-600 dark:text-white/60 text-sm mt-1">Vui lòng đăng nhập/đăng ký để tiếp tục</p>
-            </div>
-            <AuthBar />
-          </div>
-        </header>
-        <main className="flex-1 flex items-center justify-center px-4 py-8">
-          <AuthCard />
-        </main>
-      </div>
-    );
-  }
-
   // Render
   // eslint-disable-next-line no-console
-  console.log('[boot] App() rendering main app (has session)');
+  console.log('[boot] App() rendering main app (public mode)');
   return (
     <div className="min-h-screen font-sans bg-gradient-to-br from-white via-white to-slate-100 text-slate-900 dark:from-slate-900 dark:via-slate-900 dark:to-slate-800 dark:text-slate-100">
       <header className="sticky top-0 z-10 bg-white/70 backdrop-blur-md border-b border-slate-200 dark:bg-white/5 dark:border-white/10">
@@ -454,7 +425,6 @@ function App() {
                 <button onClick={() => setView('grades')} className={`px-3 py-2 text-sm transition ${view === 'grades' ? 'bg-slate-100 text-slate-900 dark:bg-white/20 dark:text-white' : 'hover:bg-slate-50 dark:text-white/80 dark:hover:bg-white/15'}`}>Điểm</button>
               </div>
               <button onClick={() => setTheme(theme === 'dark' ? 'light' : 'dark')} title="Đổi giao diện" aria-label="Đổi giao diện" className="px-3 py-2 text-sm rounded-md border border-slate-200 bg-white hover:bg-slate-50 text-slate-700 dark:bg-white/10 dark:border-white/15 dark:text-white/90 dark:hover:bg-white/15">{theme === 'dark' ? '☀️' : '🌙'}</button>
-              <AuthBar />
             </div>
           </div>
 
@@ -663,7 +633,7 @@ function App() {
                 {showAddForm && (
                   <div className="mt-3">
                     <h3 className="mb-2 text-sm font-semibold text-white/85">Thêm tài liệu mới</h3>
-                    <AddDocumentForm onAdd={handleDocAdd} subjectId={selectedSubjectId} />
+                    <AddDocumentForm onAdd={handleDocAdd} subjectId={selectedSubjectId} onImported={handleDocImported} />
                   </div>
                 )}
               </div>

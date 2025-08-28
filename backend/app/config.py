@@ -29,6 +29,14 @@ class Settings(BaseSettings):
     # OCR / Tesseract: optional tessdata directory for language models (e.g., tessdata_best)
     tessdata_dir: str | None = Field(default=None, validation_alias="TESSDATA_DIR")
 
+    # Google Drive (simple API key for public file download via alt=media)
+    google_drive_api_key: str | None = Field(default=None, validation_alias="GOOGLE_DRIVE_API_KEY")
+
+    # Microsoft Graph (client credentials for OneDrive share/file download)
+    ms_graph_client_id: str | None = Field(default=None, validation_alias="MS_GRAPH_CLIENT_ID")
+    ms_graph_client_secret: str | None = Field(default=None, validation_alias="MS_GRAPH_CLIENT_SECRET")
+    ms_graph_tenant_id: str | None = Field(default=None, validation_alias="MS_GRAPH_TENANT_ID")
+
     # Pydantic v2 config: load env from backend/.env (not project root .env)
     _env_file = str((Path(__file__).resolve().parent.parent / ".env").resolve())
     model_config = SettingsConfigDict(env_file=_env_file, case_sensitive=False, extra="ignore")

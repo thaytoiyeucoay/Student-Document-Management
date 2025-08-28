@@ -1,11 +1,11 @@
 import { StrictMode, Component, type ReactNode, lazy, Suspense } from 'react'
 import { createRoot } from 'react-dom/client'
-import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
+import { BrowserRouter, Routes, Route } from 'react-router-dom'
 import './index.css'
 import App from './App.tsx'
 const ProfilePage = lazy(() => import('./pages/ProfilePage'))
 const NotFoundPage = lazy(() => import('./pages/NotFoundPage'))
-import useAuth from './hooks/useAuth'
+// Auth removed: routes are public
 import { Toaster } from 'react-hot-toast'
 import ScrollToTop from './components/ScrollToTop'
 
@@ -44,20 +44,7 @@ class ErrorBoundaryReact extends Component<{ children: ReactNode }, { hasError: 
   }
 }
 
-// Auth guard component to protect private routes
-function RequireAuth({ children }: { children: ReactNode }) {
-  const { user, loading } = useAuth();
-  if (loading) return (
-    <div className="min-h-[50vh] flex items-center justify-center">
-      <div role="status" aria-live="polite" className="flex items-center gap-2 text-slate-500 dark:text-white/70">
-        <span className="animate-spin inline-block h-5 w-5 border-2 border-slate-300 border-t-slate-500 rounded-full" />
-        <span>Đang kiểm tra phiên đăng nhập…</span>
-      </div>
-    </div>
-  );
-  if (!user) return <Navigate to="/" replace />;
-  return children as any;
-}
+// Auth guard removed
 
 // Fallback UI if React crashes at runtime
 function Root() {
@@ -70,18 +57,16 @@ function Root() {
           <ScrollToTop />
           <Routes>
             <Route path="/profile" element={
-              <RequireAuth>
-                <Suspense fallback={
-                  <div style={{ minHeight: '50vh', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, color: '#64748b' }}>
-                      <span className="animate-spin inline-block h-4 w-4 border-2 border-slate-300 border-t-slate-500 rounded-full" />
-                      <span>Đang tải trang hồ sơ...</span>
-                    </div>
+              <Suspense fallback={
+                <div style={{ minHeight: '50vh', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, color: '#64748b' }}>
+                    <span className="animate-spin inline-block h-4 w-4 border-2 border-slate-300 border-t-slate-500 rounded-full" />
+                    <span>Đang tải trang hồ sơ...</span>
                   </div>
-                }>
-                  <ProfilePage />
-                </Suspense>
-              </RequireAuth>
+                </div>
+              }>
+                <ProfilePage />
+              </Suspense>
             } />
             <Route path="/" element={<App />} />
             <Route path="*" element={

@@ -1,9 +1,8 @@
 from typing import List, Optional
-from fastapi import APIRouter, Depends, UploadFile, File, HTTPException, Form, BackgroundTasks
+from fastapi import APIRouter, UploadFile, File, HTTPException, Form, BackgroundTasks
 import logging
 from ..schemas import DocumentCreate, DocumentUpdate, DocumentOut
 from ..supabase_client import get_supabase
-from ..auth import get_current_user
 from ..config import get_settings
 import uuid
 import json
@@ -19,7 +18,7 @@ def _table_name() -> str:
 
 
 @router.get("/documents", response_model=List[DocumentOut])
-async def list_documents(subject_id: Optional[str] = None, user=Depends(get_current_user)):
+async def list_documents(subject_id: Optional[str] = None):
     sb = get_supabase()
     query = sb.table(_table_name()).select("*")
     if subject_id is not None:
@@ -29,11 +28,9 @@ async def list_documents(subject_id: Optional[str] = None, user=Depends(get_curr
 
 
 @router.post("/documents", response_model=DocumentOut)
-async def create_document(payload: DocumentCreate, user=Depends(get_current_user)):
+async def create_document(payload: DocumentCreate):
     sb = get_supabase()
     data = payload.model_dump(by_alias=True)
-    if user and (uid := user.get("sub")):
-        data["user_id"] = uid
     # Ensure tags is JSON-serializable
     if data.get("tags") is None:
         data["tags"] = []
@@ -44,7 +41,7 @@ async def create_document(payload: DocumentCreate, user=Depends(get_current_user
 
 
 @router.patch("/documents/{doc_id}", response_model=DocumentOut)
-async def update_document(doc_id: str, payload: DocumentUpdate, user=Depends(get_current_user)):
+async def update_document(doc_id: str, payload: DocumentUpdate):
     sb = get_supabase()
     data = {k: v for k, v in payload.model_dump().items() if v is not None}
     q = sb.table(_table_name()).update(data).eq("id", doc_id)
@@ -55,7 +52,7 @@ async def update_document(doc_id: str, payload: DocumentUpdate, user=Depends(get
 
 
 @router.delete("/documents/{doc_id}")
-async def delete_document(doc_id: str, user=Depends(get_current_user)):
+async def delete_document(doc_id: str):
     sb = get_supabase()
     q = sb.table(_table_name()).delete().eq("id", doc_id)
     resp = q.execute()
@@ -65,7 +62,7 @@ async def delete_document(doc_id: str, user=Depends(get_current_user)):
 
 
 @router.post("/documents/{doc_id}/upload", response_model=DocumentOut)
-async def upload_document_file(doc_id: str, file: UploadFile = File(...), enable_rag: bool = Form(False), background_tasks: BackgroundTasks = None, user=Depends(get_current_user)):
+async def upload_document_file(doc_id: str, file: UploadFile = File(...), enable_rag: bool = Form(False), background_tasks: BackgroundTasks = None):
     sb = get_supabase()
     settings = get_settings()
 
@@ -183,7 +180,7 @@ async def upload_document_file(doc_id: str, file: UploadFile = File(...), enable
                 pass
             engine = get_engine()
             subject_id = str(saved_doc.get("subject_id")) if saved_doc.get("subject_id") is not None else None
-            user_id = (user or {}).get("sub") if isinstance(user, dict) else None
+            user_id = None
             filename = file.filename or path.split("/")[-1]
 
             def _do_index():

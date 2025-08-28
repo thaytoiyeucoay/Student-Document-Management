@@ -1,6 +1,5 @@
 import type { Document, Subject, ScheduleItem } from '../types';
 import type { Annotation } from '../types';
-import { supabase } from './lib/supabase';
 
 const apiBase = import.meta.env.VITE_API_URL as string | undefined;
 
@@ -14,14 +13,6 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
   const headers = isForm
     ? (options.headers || {})
     : { 'Content-Type': 'application/json', ...(options.headers || {}) };
-  // Attach Supabase access token if available
-  try {
-    const { data } = await supabase.auth.getSession();
-    const tok = data?.session?.access_token;
-    if (tok) {
-      (headers as any)['Authorization'] = `Bearer ${tok}`;
-    }
-  } catch {}
   const res = await fetch(`${apiBase}${path}`, {
     ...options,
     headers,
@@ -73,6 +64,28 @@ export const api = {
   async getMyProfile(): Promise<{ id: string; user_id: string; full_name?: string; avatar_url?: string; role: 'admin' | 'student' }>
   {
     return await request(`/profiles/me`);
+  },
+  // Imports: Google Drive / OneDrive
+  async importFromGoogleDrive(payload: { fileId?: string; shareLink?: string; subjectId?: string; name?: string; enableRag?: boolean }): Promise<Document> {
+    const body: any = {
+      file_id: payload.fileId ?? undefined,
+      share_link: payload.shareLink ?? undefined,
+      subject_id: payload.subjectId ?? undefined,
+      name: payload.name ?? undefined,
+      enable_rag: Boolean(payload.enableRag),
+    };
+    const data = await request<any>(`/import/google_drive`, { method: 'POST', body: JSON.stringify(body) });
+    return mapDocFromApi(data);
+  },
+  async importFromOneDrive(payload: { shareLink: string; subjectId?: string; name?: string; enableRag?: boolean }): Promise<Document> {
+    const body: any = {
+      share_link: payload.shareLink,
+      subject_id: payload.subjectId ?? undefined,
+      name: payload.name ?? undefined,
+      enable_rag: Boolean(payload.enableRag),
+    };
+    const data = await request<any>(`/import/onedrive`, { method: 'POST', body: JSON.stringify(body) });
+    return mapDocFromApi(data);
   },
   async updateMyProfile(patch: { full_name?: string; avatar_url?: string }): Promise<{ id: string; user_id: string; full_name?: string; avatar_url?: string; role: 'admin' | 'student' }>
   {

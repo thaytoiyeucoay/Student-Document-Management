@@ -1,8 +1,7 @@
 from typing import Optional, List, Any, Dict
-from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks
+from fastapi import APIRouter, HTTPException, BackgroundTasks
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
-from ..auth import get_current_user
 from ..rag import get_engine
 from ..vector_store import SupabaseVectorStore
 from ..supabase_client import get_supabase
@@ -50,11 +49,11 @@ class StreamPayload(RAGQuery):
 
 
 @router.post("/rag/stream")
-async def rag_stream(payload: StreamPayload, user=Depends(get_current_user)):
+async def rag_stream(payload: StreamPayload):
     if not payload.query or not payload.query.strip():
         raise HTTPException(status_code=400, detail="Query is required")
     engine = get_engine()
-    uid = (user or {}).get("sub") if isinstance(user, dict) else None
+    uid = None
 
     results = engine.retrieve(
         payload.query,
@@ -104,11 +103,11 @@ async def rag_stream(payload: StreamPayload, user=Depends(get_current_user)):
 
 
 @router.post("/rag/query", response_model=RAGAnswer)
-async def rag_query(payload: RAGQuery, user=Depends(get_current_user)):
+async def rag_query(payload: RAGQuery):
     if not payload.query or not payload.query.strip():
         raise HTTPException(status_code=400, detail="Query is required")
     engine = get_engine()
-    uid = (user or {}).get("sub") if isinstance(user, dict) else None
+    uid = None
     results = engine.retrieve(
         payload.query,
         top_k=payload.top_k,
@@ -152,17 +151,15 @@ async def rag_query(payload: RAGQuery, user=Depends(get_current_user)):
 
 
 @router.get("/rag/jobs/{doc_id}")
-async def rag_job_status(doc_id: str, user=Depends(get_current_user)):
+async def rag_job_status(doc_id: str):
     # For now, in-memory by doc_id only. Could add user scoping later.
     return job_store.get(doc_id)
 
 
 @router.post("/rag/index/{doc_id}")
-async def rag_index_now(doc_id: str, background_tasks: BackgroundTasks, user=Depends(get_current_user)):
+async def rag_index_now(doc_id: str, background_tasks: BackgroundTasks):
     sb = get_supabase()
     q = sb.table("documents").select("id,file_url,file_path,subject_id,user_id,author,tags,created_at").eq("id", doc_id)
-    if user and (uid := user.get("sub")):
-        q = q.eq("user_id", uid)
     resp = q.execute()
     if not resp.data:
         raise HTTPException(status_code=404, detail="Document not found or permission denied")
@@ -173,7 +170,7 @@ async def rag_index_now(doc_id: str, background_tasks: BackgroundTasks, user=Dep
 
     engine = get_engine()
     subject_id = str(row.get("subject_id")) if row.get("subject_id") is not None else None
-    uid = (user or {}).get("sub") if isinstance(user, dict) else None
+    uid = None
     job_store.start(doc_id)
 
     async def _run():
@@ -193,7 +190,7 @@ async def rag_index_now(doc_id: str, background_tasks: BackgroundTasks, user=Dep
 
 
 @router.get("/rag/diag")
-async def rag_diag(user=Depends(get_current_user)):
+async def rag_diag():
     """Chẩn đoán nhanh: tạo embedding cho 1 câu ngắn và thử insert vào Supabase.
     Trả về kích thước vector, số hàng chèn thử, và lỗi (nếu có)."""
     engine = get_engine()
