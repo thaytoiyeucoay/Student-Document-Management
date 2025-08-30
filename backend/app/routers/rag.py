@@ -158,6 +158,8 @@ async def rag_job_status(doc_id: str):
 
 @router.post("/rag/index/{doc_id}")
 async def rag_index_now(doc_id: str, background_tasks: BackgroundTasks):
+    import logging
+    logging.getLogger("rag").info("[RAG] IndexNow requested doc_id=%s", doc_id)
     sb = get_supabase()
     q = sb.table("documents").select("id,file_url,file_path,subject_id,user_id,author,tags,created_at").eq("id", doc_id)
     resp = q.execute()
@@ -169,9 +171,12 @@ async def rag_index_now(doc_id: str, background_tasks: BackgroundTasks):
         raise HTTPException(status_code=400, detail="Document has no file_url to index")
 
     engine = get_engine()
+    # Normalize IDs from DB row to ensure numeric strings
+    canonical_doc_id = str(row.get("id")) if row.get("id") is not None else str(doc_id)
     subject_id = str(row.get("subject_id")) if row.get("subject_id") is not None else None
+    logging.getLogger("rag").info("[RAG] IndexNow doc_id_in_path=%s canonical_doc_id=%s subject_id=%s file_url=%s", doc_id, canonical_doc_id, subject_id, bool(row.get("file_url")))
     uid = None
-    job_store.start(doc_id)
+    job_store.start(canonical_doc_id)
 
     async def _run():
         try:
@@ -181,12 +186,12 @@ async def rag_index_now(doc_id: str, background_tasks: BackgroundTasks):
                 "created_at": row.get("created_at"),
                 "file_url": row.get("file_url"),
             }
-            await engine.index_document_from_url(document_id=doc_id, subject_id=subject_id, user_id=uid, url=file_url, file_name=row.get("file_path") or "file.bin", extra_metadata=extra_metadata)
+            await engine.index_document_from_url(document_id=canonical_doc_id, subject_id=subject_id, user_id=uid, url=file_url, file_name=row.get("file_path") or "file.bin", extra_metadata=extra_metadata, replace=True)
         except Exception as e:
             job_store.fail(doc_id, f"Index lỗi: {e}")
 
     background_tasks.add_task(_run)
-    return {"ok": True, "doc_id": doc_id}
+    return {"ok": True, "doc_id": canonical_doc_id}
 
 
 @router.get("/rag/diag")
@@ -281,3 +286,75 @@ def _dedupe_and_rerank_contexts(query: str, contexts: List[Dict[str, Any]]) -> L
 
     uniq.sort(key=score, reverse=True)
     return uniq
+
+
+# ---- Advanced helpers: Question Suggestions ----
+class SuggestQuestionsPayload(RAGQuery):
+    query: Optional[str] = None
+    max_questions: int = 5
+
+
+class SuggestQuestionsResponse(BaseModel):
+    questions: List[str]
+
+
+@router.post("/rag/suggest_questions", response_model=SuggestQuestionsResponse)
+async def rag_suggest_questions(payload: SuggestQuestionsPayload):
+    engine = get_engine()
+    uid = None
+    # Use query (if any) to bias retrieval; otherwise retrieve broadly with subject filter
+    retrieval_q = (payload.query or "tổng quan").strip()
+    results = engine.retrieve(
+        retrieval_q,
+        top_k=max(3, min(payload.top_k or 5, 12)),
+        subject_id=payload.subject_id,
+        subject_ids=payload.subject_ids,
+        user_id=uid,
+        tags=payload.tags,
+        author=payload.author,
+        time_from=payload.time_from,
+        time_to=payload.time_to,
+        source=payload.source,
+        file_type=payload.file_type,
+        page_from=payload.page_from,
+        page_to=payload.page_to,
+    )
+    # Heuristic: derive keywords and craft question stems
+    texts = [(r.get("citation") or {}).get("snippet") or r.get("text") or "" for r in results]
+    # Use internal keyword extractor if available via engine; fallback to simple tokens
+    try:
+        # type: ignore[attr-defined]
+        keywords = []  # type: List[str]
+        for t in texts:
+            kws = engine._extract_keywords(t, top_k=6)  # type: ignore
+            for k in kws:
+                if k not in keywords:
+                    keywords.append(k)
+        keywords = keywords[: max(8, (payload.max_questions or 5) * 2)]
+    except Exception:
+        from collections import Counter
+        import re as _re
+        tokens = []
+        for t in texts:
+            s = _re.sub(r"[^\w\sà-ỹá-ýâêôăđơưÀ-ỸÁ-ÝÂÊÔĂĐƠƯ]", " ", (t or "").lower())
+            tokens.extend([x for x in s.split() if len(x) > 3])
+        most = [w for w, _ in Counter(tokens).most_common(20)]
+        keywords = most
+    stems = [
+        "Tóm tắt các ý chính về: {}",
+        "Đưa ví dụ minh hoạ cho: {}",
+        "Các khái niệm liên quan đến {} là gì?",
+        "So sánh {} với các khái niệm gần nhất",
+        "Ứng dụng thực tế của {}?",
+    ]
+    out: List[str] = []
+    for k in keywords:
+        for s in stems:
+            q = s.format(k)
+            if q not in out:
+                out.append(q)
+            if len(out) >= max(3, min(12, payload.max_questions or 5)):
+                break
+        if len(out) >= max(3, min(12, payload.max_questions or 5)):
+            break
+    return SuggestQuestionsResponse(questions=out)

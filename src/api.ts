@@ -160,6 +160,19 @@ export const api = {
     const ctx = Array.isArray(data.contexts) ? data.contexts : [];
     return { answer: data.answer as string, contexts: ctx };
   },
+  async ragSuggestQuestions(params: { query?: string; subjectId?: string; topK?: number; tags?: string[]; author?: string; timeFrom?: string; timeTo?: string; maxQuestions?: number }): Promise<{ questions: string[] }>
+  {
+    const body: any = { top_k: params.topK ?? 5 };
+    if (params.query) body.query = params.query;
+    if (params.subjectId) body.subject_id = params.subjectId;
+    if (params.tags && params.tags.length) body.tags = params.tags;
+    if (params.author) body.author = params.author;
+    if (params.timeFrom) body.time_from = params.timeFrom;
+    if (params.timeTo) body.time_to = params.timeTo;
+    if (params.maxQuestions != null) body.max_questions = params.maxQuestions;
+    const data = await request<any>(`/rag/suggest_questions`, { method: 'POST', body: JSON.stringify(body) });
+    return { questions: Array.isArray(data.questions) ? data.questions : [] };
+  },
   // Schedules
   async listSchedules(params: { from: string; to: string; subjectId?: string }): Promise<ScheduleItem[]> {
     const qs = new URLSearchParams({ from: params.from, to: params.to });
@@ -360,6 +373,57 @@ export const api = {
       return;
     }
     await request(`/annotations/${id}`, { method: 'DELETE' });
+  },
+
+  // Learning Path
+  async learningPathGenerate(payload: { goal: string; deadline: string; hours_per_week: number; available_days: string[]; preferred_time: string; subjects: string[]; level?: string }): Promise<{ plan: Array<{ subject_id?: string; title?: string; starts_at: string; ends_at: string; focus?: string; doc_refs?: string[] }> }> {
+    const body = {
+      goal: payload.goal,
+      deadline: payload.deadline,
+      hours_per_week: payload.hours_per_week,
+      available_days: payload.available_days,
+      preferred_time: payload.preferred_time,
+      subjects: payload.subjects,
+      level: payload.level ?? 'beginner',
+    };
+    return await request(`/learning_path/generate`, { method: 'POST', body: JSON.stringify(body) });
+  },
+  async learningPathApply(plan: Array<{ subject_id?: string | null; title?: string | null; starts_at: string; ends_at: string; focus?: string | null; doc_refs?: string[] | null }>): Promise<{ created: number }> {
+    const body = { plan };
+    return await request(`/learning_path/apply`, { method: 'POST', body: JSON.stringify(body) });
+  },
+
+  // Mind Map
+  async mindmapGenerate(payload: { document_id?: string; subject_id?: string; max_nodes?: number; language?: string; mode?: 'heuristic' | 'rag' | 'llm' }): Promise<{
+    nodes: Array<{ id: string; label: string; score?: number; type?: string }>; 
+    edges: Array<{ id: string; source: string; target: string; label?: string; weight?: number }>; 
+    meta: Record<string, any>
+  }>
+  {
+    const body: any = {
+      document_id: payload.document_id ?? undefined,
+      subject_id: payload.subject_id ?? undefined,
+      max_nodes: payload.max_nodes ?? 20,
+      language: payload.language ?? 'vi',
+      mode: payload.mode ?? 'heuristic',
+    };
+    return await request(`/mindmap/generate`, { method: 'POST', body: JSON.stringify(body) });
+  },
+
+  // Quiz
+  async quizGenerate(payload: { document_id?: string; subject_id?: string; num_questions?: number; difficulty?: 'easy' | 'medium' | 'hard'; language?: 'vi' | 'en'; mode?: 'rule' | 'llm' | 'hybrid' }): Promise<{
+    questions: Array<{ id: string; question: string; choices: string[]; answer_index: number; explanation?: string }>; meta: Record<string, any>
+  }>
+  {
+    const body: any = {
+      document_id: payload.document_id ?? undefined,
+      subject_id: payload.subject_id ?? undefined,
+      num_questions: payload.num_questions ?? 5,
+      difficulty: payload.difficulty ?? 'medium',
+      language: payload.language ?? 'vi',
+      mode: payload.mode ?? undefined,
+    };
+    return await request(`/quiz/generate`, { method: 'POST', body: JSON.stringify(body) });
   },
 };
 

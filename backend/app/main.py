@@ -2,6 +2,9 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from .config import get_settings
 from .routers import subjects, documents, schedules, rag
+from .routers import learning_path as learning_path_router
+from .routers import quiz as quiz_router
+from .routers import mindmap as mindmap_router
 from .routers import imports as imports_router
 from .routers import profiles as profiles_router
 from .routers import ocr as ocr_router
@@ -94,4 +97,7 @@ app.include_router(rag.router, prefix=settings.api_prefix, tags=["rag"])
 app.include_router(ocr_router.router, prefix=settings.api_prefix, tags=["ai"])
 app.include_router(profiles_router.router, prefix=settings.api_prefix, tags=["profiles"])
 app.include_router(imports_router.router, prefix=settings.api_prefix, tags=["imports"])
+app.include_router(learning_path_router.router, prefix=settings.api_prefix, tags=["learning_path"])
+app.include_router(mindmap_router.router, prefix=settings.api_prefix, tags=["mindmap"])
+app.include_router(quiz_router.router, prefix=f"{settings.api_prefix}/quiz", tags=["quiz"])
 

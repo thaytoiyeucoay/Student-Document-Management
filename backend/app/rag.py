@@ -122,12 +122,13 @@ class RAGEngine:
 
     # -------- Ingestion --------
     def index_document(self, *,
-                        document_id: str,
-                        subject_id: Optional[str],
-                        user_id: Optional[str],
-                        file_bytes: bytes,
-                        file_name: str,
-                        extra_metadata: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+                       document_id: str,
+                       subject_id: Optional[str],
+                       user_id: Optional[str],
+                       file_bytes: bytes,
+                       file_name: str,
+                       extra_metadata: Optional[Dict[str, Any]] = None,
+                       replace: bool = False) -> Dict[str, Any]:
         logger = logging.getLogger("rag")
         logger.info("[RAG] Index start doc_id=%s subject_id=%s user_id=%s file=%s", document_id, subject_id, user_id, file_name)
         # Update job: starting -> chunking
@@ -200,6 +201,24 @@ class RAGEngine:
         except Exception:
             dim = None
         logger.info("[RAG] Index embeddings computed doc_id=%s provider=%s dim=%s", document_id, self.settings.embed_provider, dim)
+        # If replace=True, delete existing chunks for this document first
+        try:
+            if replace:
+                if self.settings.store_backend == "chroma":
+                    try:
+                        self._collection.delete(where={"document_id": str(document_id)})  # type: ignore[attr-defined]
+                        logger.info("[RAG] Deleted existing Chroma chunks doc_id=%s", document_id)
+                    except Exception as e:
+                        logger.warning("[RAG] Failed to delete Chroma chunks doc_id=%s err=%s", document_id, e)
+                else:
+                    try:
+                        self._svs.delete_chunks_by_document(str(document_id))  # type: ignore[attr-defined]
+                        logger.info("[RAG] Deleted existing Supabase chunks doc_id=%s", document_id)
+                    except Exception as e:
+                        logger.warning("[RAG] Failed to delete Supabase chunks doc_id=%s err=%s", document_id, e)
+        except Exception:
+            pass
+
         if self.settings.store_backend == "chroma":
             try:
                 self._collection.add(ids=ids, documents=documents, metadatas=metadatas, embeddings=embeddings)
@@ -220,6 +239,7 @@ class RAGEngine:
                     job_store.update(document_id, stage="storing", progress=70, message="Đang lưu embeddings vào vector store")
                 except Exception:
                     pass
+                logger.info("[RAG] Supabase add_chunks doc_id=%s (type=%s) subject_id=%s (type=%s) file=%s chunks=%d", document_id, type(document_id).__name__, subject_id, type(subject_id).__name__ if subject_id is not None else None, file_name, len(documents))
                 self._svs.add_chunks(
                     document_id=document_id,
                     subject_id=subject_id,
@@ -251,13 +271,14 @@ class RAGEngine:
                                       user_id: Optional[str],
                                       url: str,
                                       file_name: Optional[str] = None,
-                                      extra_metadata: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+                                      extra_metadata: Optional[Dict[str, Any]] = None,
+                                      replace: bool = False) -> Dict[str, Any]:
         async with httpx.AsyncClient(timeout=60) as client:
             resp = await client.get(url)
             resp.raise_for_status()
             content = resp.content
         name = file_name or url.split("?")[0].split("/")[-1] or "file.bin"
-        return self.index_document(document_id=document_id, subject_id=subject_id, user_id=user_id, file_bytes=content, file_name=name, extra_metadata=extra_metadata)
+        return self.index_document(document_id=document_id, subject_id=subject_id, user_id=user_id, file_bytes=content, file_name=name, extra_metadata=extra_metadata, replace=replace)
 
     # -------- Retrieval & QA --------
     def retrieve(self, query: str, *, top_k: int = 5, subject_id: Optional[str] = None, subject_ids: Optional[List[str]] = None, user_id: Optional[str] = None, tags: Optional[List[str]] = None, author: Optional[str] = None, time_from: Optional[str] = None, time_to: Optional[str] = None, source: Optional[str] = None, file_type: Optional[str] = None, page_from: Optional[int] = None, page_to: Optional[int] = None) -> List[Dict[str, Any]]:

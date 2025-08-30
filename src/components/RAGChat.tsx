@@ -283,6 +283,32 @@ export default function RAGChat({ subjectId, onClose }: Props) {
     await send();
   };
 
+  
+
+  // Suggest follow-up questions from current knowledge base
+  const suggestQuestionsNow = async () => {
+    if (loading) return;
+    setLoading(true);
+    setError(null);
+    try {
+      const f = buildFilterParams();
+      const res = await api.ragSuggestQuestions({
+        query: input.trim() || undefined,
+        subjectId: subjectId ?? undefined,
+        topK: 5,
+        ...f,
+        maxQuestions: 6,
+      } as any);
+      const qs = Array.isArray(res.questions) ? res.questions : [];
+      const content = qs.length ? 'Gợi ý câu hỏi dựa trên học liệu:' : 'Không tạo được gợi ý câu hỏi.';
+      setMessages(m => [...m, { id: newId(), role: 'assistant', content, suggestions: qs.slice(0, 6) }]);
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : 'Đã xảy ra lỗi khi gợi ý câu hỏi');
+    } finally {
+      setLoading(false);
+    }
+  };
+
   const pinMessage = (msg: ChatMessage) => {
     if (msg.role !== 'assistant') return;
     setPinned((p) => [msg, ...p.filter(x => x.id !== msg.id)]);
@@ -572,6 +598,12 @@ export default function RAGChat({ subjectId, onClose }: Props) {
                       className="w-14 h-7 px-2 rounded-md bg-white/10 border border-white/15 text-white"
                     />
                   </div>
+                  <button
+                    type="button"
+                    onClick={suggestQuestionsNow}
+                    className="h-8 px-3 rounded-md bg-white/10 border border-white/15 text-white/90 hover:bg-white/15 text-xs"
+                    title="Gợi ý các câu hỏi tiếp theo"
+                  >Gợi ý hỏi</button>
                   <button
                     type="button"
                     onClick={() => setFiltersOpen(v => !v)}

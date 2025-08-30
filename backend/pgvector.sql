@@ -8,14 +8,16 @@ create extension if not exists vector;
 -- If you change providers/models later, you must recreate this table with the right dimension.
 
 -- Drop existing objects (optional)
--- drop function if exists match_rag_chunks(vector, int, bigint, uuid);
+-- Note: update function signature to text for subject_id
+-- drop function if exists match_rag_chunks(vector, int, text, uuid);
 -- drop index if exists idx_rag_chunks_embedding;
 -- drop table if exists rag_chunks;
 
 create table if not exists rag_chunks (
   id bigserial primary key,
-  document_id bigint,
-  subject_id bigint,
+  -- Store as text to be UUID-safe and consistent with app logic
+  document_id text,
+  subject_id text,
   user_id uuid,
   file_name text,
   chunk_index int,
@@ -33,12 +35,12 @@ create index if not exists idx_rag_chunks_embedding on rag_chunks using hnsw (em
 create or replace function match_rag_chunks(
   query_embedding vector,
   match_count int,
-  subject_id bigint default null,
+  subject_id text default null,
   user_id uuid default null
 ) returns table (
   id bigint,
-  document_id bigint,
-  subject_id bigint,
+  document_id text,
+  subject_id text,
   user_id uuid,
   file_name text,
   chunk_index int,

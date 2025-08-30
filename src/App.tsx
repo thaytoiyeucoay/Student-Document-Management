@@ -1,26 +1,31 @@
 // import thư viện cần thiết
-import { useState, useEffect, useMemo, useRef } from 'react'; //hook của react để quản lý state và lifecycle
-import api from './api'; //api để giao tiếp với backend
-import ScheduleWeek from './components/ScheduleWeek'; //component để hiển thị lịch
-import DocumentList from './components/DocumentList'; //component để hiển thị danh sách tài liệu
-import AddDocumentForm from './components/AddDocumentForm'; //component để thêm tài liệu
-import SubjectList from './components/SubjectList'; //component để hiển thị danh sách môn học
-import AddSubjectForm from './components/AddSubjectForm'; //component để thêm môn học
-import { initialSubjects, initialDocuments } from './data'; //dữ liệu ban đầu
-import type { Document, Subject } from '../types'; //kiểu dữ liệu
+import { useState, useEffect, useMemo, useRef } from 'react';
+import api from './api';
+import ScheduleWeek from './components/ScheduleWeek';
+import DocumentList from './components/DocumentList';
+import AddDocumentForm from './components/AddDocumentForm';
+import SubjectList from './components/SubjectList';
+import AddSubjectForm from './components/AddSubjectForm';
+import { initialSubjects, initialDocuments } from './data';
+import type { Document, Subject } from '../types';
 import { semesters, compareSemesters } from './semesters';
 import RAGChat from './components/RAGChat';
 import SubjectKanban from './components/SubjectKanban';
 import GradesDashboard from './components/GradesDashboard';
 import ImagesToPdf from './components/ImagesToPdf';
 import FreeOcr from './components/FreeOcr';
+import LearningPathWizard from './components/LearningPathWizard';
+import QuizGenerator from './components/QuizGenerator';
+// Material Design 3 Components
+import GlassCard from './components/ui/GlassCard';
+import AnimatedIcon from './components/ui/AnimatedIcon';
 // Authentication removed: app is public
 
 function App() {
   const [subjects, setSubjects] = useState<Subject[]>(initialSubjects); //state để lưu danh sách môn học
   const [docs, setDocs] = useState<Document[]>(initialDocuments); //state để lưu danh sách tài liệu
   const [selectedSubjectId, setSelectedSubjectId] = useState<string | null>(subjects[0]?.id || null); //state để lưu môn học được chọn
-  const [view, setView] = useState<'docs' | 'schedule' | 'grades'>('docs'); //state để lưu view hiện tại
+  const [view, setView] = useState<'docs' | 'schedule' | 'grades' | 'learning' | 'quiz'>('docs'); //state để lưu view hiện tại
   const [search, setSearch] = useState(''); //state để lưu từ khóa tìm kiếm
   const [sortKey, setSortKey] = useState<'date' | 'name'>('date'); //state để lưu key sắp xếp
   const [sortDir, setSortDir] = useState<'desc' | 'asc'>('desc'); //state để lưu direction sắp xếp
@@ -359,11 +364,6 @@ function App() {
     return docs.filter(d => ids.has(d.subjectId)).length;
   }, [subjects, docs, currentSemester]);
   const favDocs = docs.filter(d => d.favorite).length;
-  const recentUploads7d = (() => {
-    const now = Date.now();
-    const week = 7 * 24 * 60 * 60 * 1000;
-    return docs.filter(d => (d.createdAt ?? 0) >= now - week).length;
-  })();
   const uniqueTags = (() => {
     const set = new Set<string>();
     for (const d of docs) {
@@ -378,7 +378,7 @@ function App() {
     }
     return set.size;
   })();
-  const favoriteRate = docs.length ? Math.round((favDocs / docs.length) * 100) : 0;
+  const completionRate = docs.length ? Math.round((favDocs / docs.length) * 100) : 0;
   const upcomingDeadlines = useMemo(() => {
     // Read optional schedule items from localStorage (if any) and count items within next 14 days
     try {
@@ -409,45 +409,99 @@ function App() {
   // eslint-disable-next-line no-console
   console.log('[boot] App() rendering main app (public mode)');
   return (
-    <div className="min-h-screen font-sans bg-gradient-to-br from-white via-white to-slate-100 text-slate-900 dark:from-slate-900 dark:via-slate-900 dark:to-slate-800 dark:text-slate-100">
-      <header className="sticky top-0 z-10 bg-white/70 backdrop-blur-md border-b border-slate-200 dark:bg-white/5 dark:border-white/10">
+    <div className="min-h-screen font-sans bg-gradient-to-br from-white via-slate-50 to-blue-50 text-slate-900 dark:from-slate-900 dark:via-slate-800 dark:to-slate-700 dark:text-slate-100 transition-colors duration-500">
+      <header className="sticky top-0 z-10 bg-white/90 backdrop-blur-sm border-b border-slate-200 dark:bg-slate-900/90 dark:border-slate-700 shadow-lg animate-slide-up">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 space-y-3">
           {/* Hàng 1: Tiêu đề + Tab chuyển đổi giữa tài liệu và thời khóa biểu */}
           <div className="flex flex-col gap-2 md:flex-row md:items-end md:justify-between">
-            <div>
-              <h1 className="text-2xl md:text-3xl font-extrabold text-slate-900 dark:text-white/95 tracking-tight">Quản lý tài liệu sinh viên</h1>
-              <p className="text-slate-600 dark:text-white/60 text-sm mt-1">Phục vụ cho sinh viên chuyên ngành Toán Tin ✨</p>
+            <div className="animate-fade-in">
+              <h1 className="text-2xl md:text-3xl font-extrabold tracking-tight bg-gradient-to-r from-blue-600 to-purple-600 bg-clip-text text-transparent dark:from-blue-400 dark:to-purple-400">Quản lý tài liệu sinh viên</h1>
+              <p className="text-slate-600 dark:text-slate-300 text-sm mt-1 animate-slide-up">Phục vụ cho sinh viên chuyên ngành Toán Tin ✨</p>
             </div>
-            <div className="flex items-center gap-2">
-              <div className="flex rounded-lg overflow-hidden bg-white border border-slate-200 text-slate-700 dark:bg-white/10 dark:border-white/15">
-                <button onClick={() => setView('docs')} className={`px-3 py-2 text-sm transition ${view === 'docs' ? 'bg-slate-100 text-slate-900 dark:bg-white/20 dark:text-white' : 'hover:bg-slate-50 dark:text-white/80 dark:hover:bg-white/15'}`}>Tài liệu</button>
-                <button onClick={() => setView('schedule')} className={`px-3 py-2 text-sm transition ${view === 'schedule' ? 'bg-slate-100 text-slate-900 dark:bg-white/20 dark:text-white' : 'hover:bg-slate-50 dark:text-white/80 dark:hover:bg-white/15'}`}>Thời khóa biểu</button>
-                <button onClick={() => setView('grades')} className={`px-3 py-2 text-sm transition ${view === 'grades' ? 'bg-slate-100 text-slate-900 dark:bg-white/20 dark:text-white' : 'hover:bg-slate-50 dark:text-white/80 dark:hover:bg-white/15'}`}>Điểm</button>
+            <div className="flex items-center gap-2 animate-scale-in">
+              <div className="flex bg-white rounded-xl border-2 border-slate-200 shadow-lg overflow-hidden dark:bg-slate-800 dark:border-slate-600">
+                <button
+                  onClick={() => setView('docs')}
+                  className={`px-4 py-2.5 text-sm font-semibold transition-all duration-200 flex items-center gap-2 ${
+                    view === 'docs' 
+                      ? 'bg-blue-600 text-white shadow-md' 
+                      : 'text-slate-700 hover:bg-slate-100 dark:text-slate-200 dark:hover:bg-slate-700'
+                  }`}
+                >
+                  📚 Tài liệu
+                </button>
+                <button
+                  onClick={() => setView('schedule')}
+                  className={`px-4 py-2.5 text-sm font-semibold transition-all duration-200 flex items-center gap-2 border-x border-slate-200 dark:border-slate-600 ${
+                    view === 'schedule' 
+                      ? 'bg-green-600 text-white shadow-md' 
+                      : 'text-slate-700 hover:bg-slate-100 dark:text-slate-200 dark:hover:bg-slate-700'
+                  }`}
+                >
+                  📅 Thời khóa biểu
+                </button>
+                <button
+                  onClick={() => setView('grades')}
+                  className={`px-4 py-2.5 text-sm font-semibold transition-all duration-200 flex items-center gap-2 ${
+                    view === 'grades' 
+                      ? 'bg-purple-600 text-white shadow-md' 
+                      : 'text-slate-700 hover:bg-slate-100 dark:text-slate-200 dark:hover:bg-slate-700'
+                  }`}
+                >
+                  📊 Điểm
+                </button>
+                <button
+                  onClick={() => setView('learning')}
+                  className={`px-4 py-2.5 text-sm font-semibold transition-all duration-200 flex items-center gap-2 ${
+                    view === 'learning'
+                      ? 'bg-rose-600 text-white shadow-md'
+                      : 'text-slate-700 hover:bg-slate-100 dark:text-slate-200 dark:hover:bg-slate-700'
+                  }`}
+                >
+                  🧭 Lộ trình học
+                </button>
+                <button
+                  onClick={() => setView('quiz')}
+                  className={`px-4 py-2.5 text-sm font-semibold transition-all duration-200 flex items-center gap-2 ${
+                    view === 'quiz'
+                      ? 'bg-emerald-600 text-white shadow-md'
+                      : 'text-slate-700 hover:bg-slate-100 dark:text-slate-200 dark:hover:bg-slate-700'
+                  }`}
+                >
+                  📝 Quiz
+                </button>
               </div>
-              <button onClick={() => setTheme(theme === 'dark' ? 'light' : 'dark')} title="Đổi giao diện" aria-label="Đổi giao diện" className="px-3 py-2 text-sm rounded-md border border-slate-200 bg-white hover:bg-slate-50 text-slate-700 dark:bg-white/10 dark:border-white/15 dark:text-white/90 dark:hover:bg-white/15">{theme === 'dark' ? '☀️' : '🌙'}</button>
+              <button
+                onClick={() => setTheme(theme === 'dark' ? 'light' : 'dark')}
+                className="p-2.5 rounded-xl bg-white border-2 border-slate-200 text-slate-700 hover:bg-slate-50 shadow-lg transition-all duration-200 dark:bg-slate-800 dark:border-slate-600 dark:text-slate-200 dark:hover:bg-slate-700"
+                title={theme === 'dark' ? 'Chuyển sang sáng' : 'Chuyển sang tối'}
+              >
+                {theme === 'dark' ? '☀️' : '🌙'}
+              </button>
             </div>
           </div>
 
           {/* Hàng 2: Tìm kiếm */}
-          <div className="relative">
-            <svg className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-white/50" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-              <path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-4.35-4.35M10 18a8 8 0 100-16 8 8 0 000 16z" />
-            </svg>
-            <input
-              ref={searchInputRef}
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              placeholder="Tìm kiếm (/ để focus)"
-              className="w-full pl-9 pr-3 py-2.5 rounded-md bg-white border border-slate-200 text-slate-900 placeholder-slate-500 shadow-sm focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-transparent dark:bg-white/10 dark:border-white/15 dark:text-white dark:placeholder-white/60"
-            />
+          <div className="relative animate-slide-up">
+            <div className="relative">
+              <svg className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-500 dark:text-slate-400" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-4.35-4.35M10 18a8 8 0 100-16 8 8 0 000 16z" />
+              </svg>
+              <input
+                ref={searchInputRef}
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                placeholder="Tìm kiếm (/ để focus)"
+                className="w-full pl-10 pr-4 py-3 rounded-lg bg-white/90 border border-slate-200 text-slate-900 placeholder-slate-500 shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent dark:bg-slate-800/90 dark:border-slate-600 dark:text-white dark:placeholder-slate-400"
+              />
+            </div>
           </div>
 
           {/* Hàng 3: Cấu hình */}
-          <div className="flex flex-wrap items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2 animate-fade-in">
             <button
               onClick={() => setShowFavOnly(v => !v)}
-              className={`px-3 py-1.5 rounded-md text-sm border transition ${showFavOnly ? 'bg-amber-50 text-amber-700 border-amber-200 dark:bg-amber-500/20 dark:text-amber-100 dark:border-amber-400/40' : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-50 dark:bg-white/10 dark:text-white/80 dark:border-white/15 dark:hover:bg-white/15'}`}
-              title="Chỉ hiện yêu thích"
+              className={`px-4 py-2 rounded-lg text-sm font-medium border transition-all duration-200 ${showFavOnly ? 'bg-amber-100 text-amber-800 border-amber-300 shadow-sm dark:bg-amber-900/30 dark:text-amber-200 dark:border-amber-700' : 'bg-white text-slate-700 border-slate-300 hover:bg-slate-50 shadow-sm dark:bg-slate-800 dark:text-slate-200 dark:border-slate-600 dark:hover:bg-slate-700'}`}
             >
               ★ Yêu thích
             </button>
@@ -455,7 +509,7 @@ function App() {
               <select
                 value={sortKey}
                 onChange={(e) => setSortKey(e.target.value as 'date' | 'name')}
-                className="px-3 py-1.5 rounded-md bg-white border border-slate-200 text-slate-700 text-sm focus:outline-none focus:ring-2 focus:ring-primary-500 dark:bg-white/10 dark:border-white/15 dark:text-white"
+                className="px-3 py-2 rounded-lg bg-white border border-slate-300 text-slate-700 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 shadow-sm dark:bg-slate-800 dark:border-slate-600 dark:text-slate-200"
                 title="Sắp xếp theo"
               >
                 <option value="date">Ngày</option>
@@ -464,18 +518,18 @@ function App() {
               <select
                 value={sortDir}
                 onChange={(e) => setSortDir(e.target.value as 'asc' | 'desc')}
-                className="px-3 py-1.5 rounded-md bg-white border border-slate-200 text-slate-700 text-sm focus:outline-none focus:ring-2 focus:ring-primary-500 dark:bg-white/10 dark:border-white/15 dark:text-white"
+                className="px-3 py-2 rounded-lg bg-white border border-slate-300 text-slate-700 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 shadow-sm dark:bg-slate-800 dark:border-slate-600 dark:text-slate-200"
                 title="Thứ tự"
               >
                 <option value="desc">Giảm dần</option>
                 <option value="asc">Tăng dần</option>
               </select>
               {/* Chọn kỳ đang học */}
-              <label className="ml-2 text-white/80 text-sm">Kỳ đang học:</label>
+              <label className="ml-2 text-slate-600 dark:text-slate-300 text-sm font-medium">Kỳ đang học:</label>
               <select
                 value={currentSemester}
                 onChange={(e) => setCurrentSemester(e.target.value)}
-                className="px-3 py-1.5 rounded-md bg-white border border-slate-200 text-slate-700 text-sm focus:outline-none focus:ring-2 focus:ring-primary-500 dark:bg-white/10 dark:border-white/15 dark:text-white"
+                className="px-3 py-2 rounded-lg bg-blue-50 border border-blue-200 text-blue-800 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 font-medium shadow-sm dark:bg-blue-900/30 dark:border-blue-700 dark:text-blue-200"
                 title="Kỳ đang học"
               >
                 {semesters.map(s => (
@@ -483,116 +537,89 @@ function App() {
                 ))}
               </select>
             </div>
-            <details className="relative">
-              <summary className="list-none px-3 py-1.5 rounded-md bg-white border border-slate-200 text-slate-700 text-sm hover:bg-slate-50 cursor-pointer select-none dark:bg-white/10 dark:border-white/15 dark:text-white/90 dark:hover:bg-white/15">Tùy chọn ▾</summary>
-              <div className="absolute right-0 mt-2 w-56 rounded-md border border-slate-200 bg-white shadow-lg p-2 z-20 dark:border-white/15 dark:bg-slate-900/95">
-                <button
-                  onClick={() => {
-                    const payload = {
-                      subjects,
-                      docs: docs.map(({ file, ...rest }) => rest),
-                    };
-                    const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
-                    const url = URL.createObjectURL(blob);
-                    const a = document.createElement('a');
-                    a.href = url;
-                    a.download = 'documents-export.json';
-                    a.click();
-                    URL.revokeObjectURL(url);
-                    showToast('Đã export dữ liệu');
-                  }}
-                  className="w-full text-left px-3 py-2 rounded-md text-sm bg-slate-50 hover:bg-slate-100 dark:bg-white/5 dark:hover:bg-white/10"
-                >Export dữ liệu</button>
-                <label className="block w-full text-left px-3 py-2 rounded-md text-sm bg-slate-50 hover:bg-slate-100 cursor-pointer mt-1 dark:bg-white/5 dark:hover:bg-white/10">
-                  Import dữ liệu
-                  <input type="file" accept="application/json" className="hidden" onChange={async (e) => {
-                    const file = e.target.files?.[0];
-                    if (!file) return;
-                    try {
-                      const text = await file.text();
-                      const data = JSON.parse(text) as { subjects: Subject[]; docs: Document[] };
-                      if (Array.isArray(data.subjects) && Array.isArray(data.docs)) {
-                        setSubjects(data.subjects);
-                        setDocs(data.docs.map(d => ({ ...d, createdAt: d.createdAt ?? Date.now() })));
-                        const pick = data.subjects.find(s => s.semester === currentSemester) ?? data.subjects[0];
-                        setSelectedSubjectId(pick?.id ?? null);
-                        showToast('Đã import dữ liệu');
-                      } else {
-                        showToast('File không hợp lệ');
-                      }
-                    } catch {
-                      showToast('Import thất bại');
-                    }
-                  }} />
-                </label>
-              </div>
-            </details>
             <button
               onClick={() => setShowImagesToPdf(true)}
-              className="px-3 py-1.5 rounded-md text-sm bg-primary-600 text-white hover:bg-primary-700"
-              title="Gộp ảnh thành PDF"
-            >Ảnh → PDF</button>
+              className="px-4 py-2 rounded-lg text-sm font-medium bg-blue-600 text-white hover:bg-blue-700 shadow-sm transition-all duration-200 flex items-center gap-2"
+            >
+              🖼️ Ảnh → PDF
+            </button>
             <button
               onClick={() => setShowFreeOcr(true)}
-              className="px-3 py-1.5 rounded-md text-sm bg-primary-600 text-white hover:bg-primary-700"
-              title="OCR miễn phí (Tesseract)"
-            >OCR miễn phí</button>
+              className="px-4 py-2 rounded-lg text-sm font-medium bg-purple-600 text-white hover:bg-purple-700 shadow-sm transition-all duration-200 flex items-center gap-2"
+            >
+              🔍 OCR miễn phí
+            </button>
           </div>
           
           {/* Hàng 4: Dashboard tổng quan */}
-          <div className="flex items-center justify-between mb-2">
-            <h3 className="text-sm font-semibold text-white/85">Tổng quan</h3>
+          <div className="flex items-center justify-between mb-4 animate-slide-up">
+            <h3 className="text-lg font-bold text-slate-800 dark:text-slate-200 flex items-center gap-2">
+              📊 Tổng quan
+            </h3>
             <button
               onClick={() => setDashboardExpanded(v => !v)}
-              className="px-3 py-1.5 rounded-md text-xs bg-white/10 border border-white/15 text-white/80 hover:bg-white/15"
-            >{dashboardExpanded ? 'Thu gọn' : 'Mở rộng'}</button>
+              className="px-3 py-1.5 rounded-lg text-sm font-medium border border-slate-300 bg-white text-slate-700 hover:bg-slate-50 shadow-sm transition-all duration-200 dark:bg-slate-800 dark:border-slate-600 dark:text-slate-200 dark:hover:bg-slate-700"
+            >
+              {dashboardExpanded ? '▲ Thu gọn' : '▼ Mở rộng'}
+            </button>
           </div>
-          <div className={`grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3`}>
-            <div className="rounded-xl px-4 py-3 bg-white/10 border border-white/15 shadow-sm">
-              <div className="text-xs uppercase tracking-wide text-white/60">Môn đang học (kỳ {currentSemester})</div>
-              <div className="mt-1 text-2xl font-extrabold text-white/95">{totalSubjects}</div>
+          <div className={`grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3 animate-fade-in`}>
+            <div className="bg-gradient-to-br from-blue-50 to-blue-100 rounded-lg p-3 border border-blue-200 shadow-sm hover:shadow-md transition-all duration-200 dark:from-blue-900/30 dark:to-blue-800/30 dark:border-blue-700">
+              <div className="text-xs font-semibold text-blue-700 dark:text-blue-300 mb-1">Môn đang học</div>
+              <div className="text-2xl font-bold text-blue-800 dark:text-blue-200">{totalSubjects}</div>
             </div>
             {dashboardExpanded && (
-              <div className="rounded-xl px-4 py-3 bg-white/10 border border-white/15 shadow-sm">
-                <div className="text-xs uppercase tracking-wide text-white/60">Môn đã học</div>
-                <div className="mt-1 text-2xl font-extrabold text-white/95">{subjectsPast}</div>
+              <div className="bg-gradient-to-br from-green-50 to-green-100 rounded-lg p-3 border border-green-200 shadow-sm hover:shadow-md transition-all duration-200 animate-scale-in dark:from-green-900/30 dark:to-green-800/30 dark:border-green-700">
+                <div className="text-xs font-semibold text-green-700 dark:text-green-300 mb-1">Môn đã học</div>
+                <div className="text-2xl font-bold text-green-800 dark:text-green-200">{subjectsPast}</div>
               </div>
             )}
             {dashboardExpanded && (
-              <div className="rounded-xl px-4 py-3 bg-white/10 border border-white/15 shadow-sm">
-                <div className="text-xs uppercase tracking-wide text-white/60">Môn chưa học</div>
-                <div className="mt-1 text-2xl font-extrabold text-white/95">{subjectsFuture}</div>
+              <div className="bg-gradient-to-br from-slate-50 to-slate-100 rounded-lg p-3 border border-slate-200 shadow-sm hover:shadow-md transition-all duration-200 animate-scale-in dark:from-slate-800/50 dark:to-slate-700/50 dark:border-slate-600">
+                <div className="text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">Môn chưa học</div>
+                <div className="text-2xl font-bold text-slate-800 dark:text-slate-200">{subjectsFuture}</div>
               </div>
             )}
-            <div className="rounded-xl px-4 py-3 bg-white/10 border border-white/15 shadow-sm">
-              <div className="text-xs uppercase tracking-wide text-white/60">Deadline sắp tới (14 ngày)</div>
-              <div className="mt-1 text-2xl font-extrabold text-white/95">{upcomingDeadlines}</div>
+            <div className="bg-gradient-to-br from-orange-50 to-orange-100 rounded-lg p-3 border border-orange-200 shadow-sm hover:shadow-md transition-all duration-200 dark:from-orange-900/30 dark:to-orange-800/30 dark:border-orange-700">
+              <div className="text-xs font-semibold text-orange-700 dark:text-orange-300 mb-1 flex items-center gap-1">
+                ⏰ Deadline
+              </div>
+              <div className="text-2xl font-bold text-orange-800 dark:text-orange-200">{upcomingDeadlines}</div>
             </div>
-            <div className="rounded-xl px-4 py-3 bg-white/10 border border-white/15 shadow-sm">
-              <div className="text-xs uppercase tracking-wide text-white/60">Tài liệu trong kỳ hiện tại</div>
-              <div className="mt-1 text-2xl font-extrabold text-white/95">{docsInCurrentSemester}</div>
+            <div className="bg-gradient-to-br from-indigo-50 to-indigo-100 rounded-lg p-3 border border-indigo-200 shadow-sm hover:shadow-md transition-all duration-200 dark:from-indigo-900/30 dark:to-indigo-800/30 dark:border-indigo-700">
+              <div className="text-xs font-semibold text-indigo-700 dark:text-indigo-300 mb-1 flex items-center gap-1">
+                📚 Tài liệu
+              </div>
+              <div className="text-2xl font-bold text-indigo-800 dark:text-indigo-200">{docsInCurrentSemester}</div>
             </div>
-            <div className="rounded-xl px-4 py-3 bg-white/10 border border-white/15 shadow-sm">
-              <div className="text-xs uppercase tracking-wide text-white/60">Tài liệu yêu thích</div>
-              <div className="mt-1 text-2xl font-extrabold text-white/95">{favDocs} <span className="text-xs text-white/60">({favoriteRate}%)</span></div>
+            <div className="bg-gradient-to-br from-yellow-50 to-yellow-100 rounded-lg p-3 border border-yellow-200 shadow-sm hover:shadow-md transition-all duration-200 dark:from-yellow-900/30 dark:to-yellow-800/30 dark:border-yellow-700">
+              <div className="text-xs font-semibold text-yellow-700 dark:text-yellow-300 mb-1 flex items-center gap-1">
+                ⭐ Yêu thích
+              </div>
+              <div className="text-2xl font-bold text-yellow-800 dark:text-yellow-200">{favDocs}</div>
             </div>
             {dashboardExpanded && (
-              <div className="rounded-xl px-4 py-3 bg-white/10 border border-white/15 shadow-sm">
-                <div className="text-xs uppercase tracking-wide text-white/60">Tổng tài liệu</div>
-                <div className="mt-1 text-2xl font-extrabold text-white/95">{totalDocuments}</div>
+              <div className="bg-gradient-to-br from-purple-50 to-purple-100 rounded-lg p-3 border border-purple-200 shadow-sm hover:shadow-md transition-all duration-200 animate-scale-in dark:from-purple-900/30 dark:to-purple-800/30 dark:border-purple-700">
+                <div className="text-xs font-semibold text-purple-700 dark:text-purple-300 mb-1">Tổng tài liệu</div>
+                <div className="text-2xl font-bold text-purple-800 dark:text-purple-200">{totalDocuments}</div>
               </div>
             )}
             {dashboardExpanded && (
-              <div className="rounded-xl px-4 py-3 bg-white/10 border border-white/15 shadow-sm">
-                <div className="text-xs uppercase tracking-wide text-white/60">Upload 7 ngày gần đây</div>
-                <div className="mt-1 text-2xl font-extrabold text-white/95">{recentUploads7d}</div>
+              <div className="bg-gradient-to-br from-emerald-50 to-emerald-100 rounded-lg p-3 border border-emerald-200 shadow-sm hover:shadow-md transition-all duration-200 animate-scale-in dark:from-emerald-900/30 dark:to-emerald-800/30 dark:border-emerald-700">
+                <div className="text-xs font-semibold text-emerald-700 dark:text-emerald-300 mb-1 flex items-center gap-1">
+                  📈 Hoàn thành
+                </div>
+                <div className="text-2xl font-bold text-emerald-800 dark:text-emerald-200">{completionRate}%</div>
               </div>
             )}
             {dashboardExpanded && (
-              <div className="rounded-xl px-4 py-3 bg-white/10 border border-white/15 shadow-sm">
-                <div className="text-xs uppercase tracking-wide text-white/60">Thẻ khác nhau / Tác giả</div>
-                <div className="mt-1 text-2xl font-extrabold text-white/95">{uniqueTags} / {uniqueAuthors}</div>
-              </div>
+              <GlassCard className="px-4 py-3 animate-scale-in" variant="secondary" hover>
+                <div className="text-xs uppercase tracking-wide text-surface-600 dark:text-surface-400 font-medium flex items-center gap-1">
+                  <AnimatedIcon animation="shimmer" trigger="always" size="sm">🏷️</AnimatedIcon>
+                  Thẻ khác nhau / Tác giả
+                </div>
+                <div className="mt-1 text-2xl font-extrabold text-secondary-600 dark:text-secondary-400 animate-pulse-gentle">{uniqueTags} / {uniqueAuthors}</div>
+              </GlassCard>
             )}
           </div>
 
@@ -656,7 +683,7 @@ function App() {
         <div className="max-w-7xl mx-auto py-8 px-4 sm:px-6 lg:px-8">
           <ScheduleWeek subjects={subjects} onToast={showToast} />
         </div>
-      ) : (
+      ) : view === 'grades' ? (
         <div className="max-w-7xl mx-auto py-8 px-4 sm:px-6 lg:px-8">
           <GradesDashboard
             subjects={subjects}
@@ -671,7 +698,23 @@ function App() {
             }}
           />
         </div>
-      )}
+      ) : view === 'learning' ? (
+        <div className="max-w-7xl mx-auto py-8 px-4 sm:px-6 lg:px-8">
+          <LearningPathWizard subjects={subjects} onToast={showToast} onApplied={(n) => showToast(`Lộ trình (mock) gồm ${n} phiên học`)} />
+        </div>
+      ) : view === 'quiz' ? (
+        <div className="max-w-7xl mx-auto py-8 px-4 sm:px-6 lg:px-8">
+          <div className="mb-3 text-slate-700 dark:text-slate-200 text-sm">
+            Chọn Môn học và Tài liệu ngay trong form bên dưới, sau đó bấm "Tạo Quiz" để sinh câu hỏi dựa trên tài liệu.
+          </div>
+          <QuizGenerator
+            subjectId={selectedSubjectId}
+            subjects={subjects}
+            documents={docs}
+            onToast={showToast}
+          />
+        </div>
+      ) : null}
       {/* Contact Footer */}
       <footer className="mt-10 border-t border-white/10 bg-white/5 backdrop-blur-md">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 grid grid-cols-1 md:grid-cols-3 gap-6">
